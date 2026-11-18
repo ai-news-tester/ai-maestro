@@ -586,7 +586,7 @@ export class NaSunoDSP {
    * Runs the complete 14-node processing cascade offline with current settings,
    * or exports pristine unadulterated PCM directly if in bypass mode.
    * @param {AudioBuffer} audioBuffer
-   * @param {Object} params - knob and raw parameter settings
+   * @param {Object} params - composite knob settings
    * @param {boolean} isBypassed - if true, skips wet cascade and encodes raw PCM
    * @returns {Promise<Blob>}
    */

@@ -64,7 +64,7 @@ export class FLKnob {
       e.preventDefault();
       const mult = e.shiftKey ? 0.2 : 1.0;
       const delta = (e.deltaY < 0 ? this.step : -this.step) * mult;
-      this.setValue(this.val + delta, true, e.shiftKey ? this.step * 0.2 : null);
+      this.setValue(this.val + delta, true, e.shiftKey ? this.fineStep() : null);
     }, { passive: false });
 
     // Double-click reset to default
@@ -88,7 +88,7 @@ export class FLKnob {
     const baseSensitivity = range / 200; // 200px travel = full range
     const sensitivity = isShift ? baseSensitivity * 0.2 : baseSensitivity;
     const newVal = this.startVal + dy * sensitivity;
-    this.setValue(newVal, true, isShift ? this.step * 0.2 : null);
+    this.setValue(newVal, true, isShift ? this.fineStep() : null);
   }
 
   onEnd() {
@@ -100,6 +100,13 @@ export class FLKnob {
 
   onChange(cb) {
     if (typeof cb === 'function') this.listeners.push(cb);
+  }
+
+  /** Fine grid = 1/5 of step, rounded to one extra decimal so 0.1*0.2 stays 0.02, not 0.020000000000000004. */
+  fineStep() {
+    const s = String(this.step);
+    const dec = s.includes('.') ? s.split('.')[1].length : 0;
+    return +(this.step * 0.2).toFixed(dec + 1);
   }
 
   /**

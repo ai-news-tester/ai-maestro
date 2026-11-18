@@ -1,7 +1,7 @@
 /**
  * NaSuno Web Application v3.0 Entry Point
  * Coordinates Real Web Audio DSP, Pure Math Forensic Analyzer,
- * Dual-Mode Evasion/Advanced Knobs, and Config I/O.
+ * and the 14-knob Evasion engine.
  */
 
 import { SunoDetector, StegoDetector, SpectralAnalyzer } from './modules/analyzer.js';
@@ -724,7 +724,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       });
     }
 
-    // 7. WAV & Config Export setup
+    // 7. WAV Export setup
     setupExportWAV();
 
     // 8. Playback Seeker / Scrubber setup
@@ -739,7 +739,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
       for (const [knobId, val] of Object.entries(savedSettings.compositeValues)) {
         const k = registryDom.knobsMap[knobId];
-        if (k) k.setValue(val, false);
+        if (k) k.setValue(val, false, k.fineStep()); // fine grid keeps saved Shift-tuned values
       }
       applyCompositeKnobDSP();
       if (savedSettings.isBypassed) {

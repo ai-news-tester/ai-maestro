@@ -44,3 +44,16 @@ const fineKnob = new FLKnob(makeEl(), { knobId: 'bandwidthHeal', min: -6, max: 6
 fineKnob.setValue(0.25 + 0.05, false, 0.25 * 0.2);
 console.log('fine-tune 0.25 + 0.05 ->', fineKnob.val, 'expected 0.3');
 console.log('BUG fine-tune no-op?', fineKnob.val === 0.25);
+
+// 5. qualityGate step 0.1: fine step must be clean 0.02, not 0.020000000000000004
+const qReadout = { textContent: '' };
+const qKnob = new FLKnob(makeEl(), { knobId: 'qualityGate', min: 1, max: 6, step: 0.1, default: 3, val: 3, unit: '', readoutEl: qReadout });
+qKnob.setValue(3 + qKnob.fineStep(), false, qKnob.fineStep());
+console.log('qualityGate fine 3 -> 3.02:', qKnob.val, 'readout:', qReadout.textContent);
+console.log('BUG fine-step float pollution?', qKnob.val !== 3.02 || qReadout.textContent !== '3.02');
+
+// 6. Restore path: saved fine value 0.3 must survive setValue with fineStep, not snap to 0.25
+const rKnob = new FLKnob(makeEl(), { knobId: 'bandwidthHeal', min: -6, max: 6, step: 0.25, default: 0.25, val: 0.25, unit: 'dB', readoutEl: { textContent: '' } });
+rKnob.setValue(0.3, false, rKnob.fineStep());
+console.log('restore fine 0.3 ->', rKnob.val, 'expected 0.3');
+console.log('BUG restore loses fine value?', rKnob.val !== 0.3);
