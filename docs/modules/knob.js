@@ -18,12 +18,10 @@ export class FLKnob {
     this.defaultVal = options.default !== undefined ? options.default : parseFloat(element.dataset.default ?? element.dataset.val ?? this.min);
     this.val = options.val !== undefined ? options.val : parseFloat(element.dataset.val ?? this.defaultVal);
     this.unit = options.unit !== undefined ? options.unit : (element.dataset.unit || '');
-    this.isCustom = false;
 
     this.rotor = element.querySelector('.knob-rotor');
     this.ring = element.querySelector('.ring-active');
     this.readout = options.readoutEl || document.getElementById(`readout_${this.knobId}`);
-    this.customBadge = options.customBadgeEl || document.getElementById(`custom_${this.knobId}`);
 
     this.startY = 0;
     this.startVal = 0;
@@ -66,7 +64,7 @@ export class FLKnob {
       e.preventDefault();
       const mult = e.shiftKey ? 0.2 : 1.0;
       const delta = (e.deltaY < 0 ? this.step : -this.step) * mult;
-      this.setValue(this.val + delta, true);
+      this.setValue(this.val + delta, true, e.shiftKey ? this.step * 0.2 : null);
     }, { passive: false });
 
     // Double-click reset to default
@@ -90,7 +88,7 @@ export class FLKnob {
     const baseSensitivity = range / 200; // 200px travel = full range
     const sensitivity = isShift ? baseSensitivity * 0.2 : baseSensitivity;
     const newVal = this.startVal + dy * sensitivity;
-    this.setValue(newVal, true);
+    this.setValue(newVal, true, isShift ? this.step * 0.2 : null);
   }
 
   onEnd() {
@@ -109,12 +107,14 @@ export class FLKnob {
    * @param {number} newVal
    * @param {boolean} triggerUpdate
    */
-  setValue(newVal, triggerUpdate = true) {
+  setValue(newVal, triggerUpdate = true, stepOverride = null) {
     const clamped = Math.max(this.min, Math.min(this.max, newVal));
-    const stepsCount = Math.round((clamped - this.min) / this.step);
-    const precision = this.step < 0.01 ? 4 : (this.step < 0.1 ? 2 : (this.step < 1 ? 1 : 0));
-    this.val = +(this.min + stepsCount * this.step).toFixed(precision);
-    this.isCustom = false;
+    const step = stepOverride || this.step;
+    const stepsCount = Math.round((clamped - this.min) / step);
+    // precision from step decimals, so 0.25 stays 0.25 (was rounded to 0.3)
+    const stepStr = String(step);
+    const precision = stepStr.includes('.') ? stepStr.split('.')[1].length : 0;
+    this.val = +(this.min + stepsCount * step).toFixed(precision);
 
     this.updateVisuals();
 
@@ -124,17 +124,9 @@ export class FLKnob {
       }
       this.el.dispatchEvent(new CustomEvent('knob:change', {
         bubbles: true,
-        detail: { knobId: this.knobId, val: this.val, isCustom: false }
+        detail: { knobId: this.knobId, val: this.val }
       }));
     }
-  }
-
-  /**
-   * Mark this knob as CUSTOM (broken curve from advanced parameter edit).
-   */
-  setCustom(isCustom) {
-    this.isCustom = !!isCustom;
-    this.updateVisuals();
   }
 
   /**
@@ -149,31 +141,28 @@ export class FLKnob {
     }
 
     if (this.ring) {
-      const arcLength = norm * 188.5; // circumference of r=30 circle over 270° is ~141.4, r=40 is ~188.5
+      const arcLength = norm * 141.4; // 270° arc of r=30 circle: 2*pi*30*(270/360) = 141.4
       this.ring.style.strokeDasharray = `${arcLength} 300`;
     }
 
-    if (this.customBadge) {
-      this.customBadge.style.display = this.isCustom ? 'inline-flex' : 'none';
-    }
-
     if (this.readout) {
-      if (this.isCustom) {
-        this.readout.textContent = 'CUSTOM';
-        this.readout.classList.add('custom-val');
-      } else {
-        this.readout.classList.remove('custom-val');
+      {
         let displayStr = '';
         if (this.unit === 'Hz') {
           displayStr = `${Math.round(this.val)} Hz`;
         } else if (this.unit === 'dB') {
           const sign = this.val > 0 ? '+' : '';
-          const dec = this.val % 1 === 0 ? 0 : (this.step < 0.1 ? 2 : 1);
+          const stepStr = String(this.step);
+          const stepDec = stepStr.includes('.') ? stepStr.split('.')[1].length : 0;
+          const dec = this.val % 1 === 0 ? 0 : stepDec;
           displayStr = `${sign}${this.val.toFixed(dec)} dB`;
         } else if (this.unit === '%') {
-          displayStr = `${Math.round(this.val)}%`;
+          displayStr = `${Number.isInteger(this.val) ? Math.round(this.val) : this.val.toFixed(1)}%`;
         } else {
-          const dec = this.step < 0.01 ? 4 : (this.step < 0.1 ? 2 : (this.step < 1 ? 1 : 0));
+          const stepStr = String(this.step);
+          const stepDec = stepStr.includes('.') ? stepStr.split('.')[1].length : 0;
+          const valDec = String(this.val).includes('.') ? String(this.val).split('.')[1].length : 0;
+          const dec = Math.max(stepDec, valDec); // fine-tuned value may carry more decimals than step
           displayStr = `${this.val.toFixed(dec)}${this.unit ? ' ' + this.unit : ''}`;
         }
         this.readout.textContent = displayStr;

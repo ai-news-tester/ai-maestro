@@ -421,11 +421,15 @@ export class SpectralAnalyzer {
     }
     const avgSFM = magnitudes.length > 0 ? sfmSum / magnitudes.length : 0;
 
+    const peak = AudioMath.peakDBFS(samples);
+    const rms = AudioMath.rmsDBFS(samples);
+    const crest = Number.isFinite(peak) && Number.isFinite(rms) ? peak - rms : 0;
+
     return {
       spectralFlatness: +avgSFM.toFixed(4),
-      peakDBFS: +AudioMath.peakDBFS(samples).toFixed(1),
-      rmsDBFS: +AudioMath.rmsDBFS(samples).toFixed(1),
-      crestFactorDB: +(AudioMath.peakDBFS(samples) - AudioMath.rmsDBFS(samples)).toFixed(1),
+      peakDBFS: +peak.toFixed(1),
+      rmsDBFS: +rms.toFixed(1),
+      crestFactorDB: +crest.toFixed(1),
     };
   }
 }

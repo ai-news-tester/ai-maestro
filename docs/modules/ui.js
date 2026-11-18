@@ -1,6 +1,6 @@
 /**
  * NaSuno UI Controller Module
- * Manages dual-mode panel tab switching, info popovers, preset dropdowns, and bypass controls.
+ * Manages info popovers, preset dropdowns, and bypass controls.
  */
 
 export class UIController {
@@ -9,43 +9,11 @@ export class UIController {
     this.onPresetSelect = options.onPresetSelect || (() => {});
     this.onBypassToggle = options.onBypassToggle || (() => {});
 
-    this.activePanel = 'evasion';
     this.activePopoverKnob = null;
 
-    this.initTabs();
     this.initPopovers();
     this.initPresetDropdown();
     this.initBypassToggle();
-  }
-
-  // ==========================================================================
-  // Panel Tab Switching (Evasion Mode vs Advanced Mode vs Config I/O)
-  // ==========================================================================
-  initTabs() {
-    const tabs = document.querySelectorAll('.panel-tab');
-    tabs.forEach((tab) => {
-      tab.addEventListener('click', () => {
-        const targetPanel = tab.dataset.panel;
-        this.switchPanel(targetPanel);
-      });
-    });
-  }
-
-  switchPanel(panelId) {
-    this.activePanel = panelId;
-
-    // Update tab button classes
-    document.querySelectorAll('.panel-tab').forEach((tab) => {
-      tab.classList.toggle('active', tab.dataset.panel === panelId);
-    });
-
-    // Update panel view visibility
-    document.querySelectorAll('.rack-panel-view').forEach((view) => {
-      view.classList.toggle('active', view.dataset.panelView === panelId);
-    });
-
-    // Hide any open popover
-    this.hidePopover();
   }
 
   // ==========================================================================
@@ -91,25 +59,6 @@ export class UIController {
       badgeEl.className = `popover-badge badge-${knob.ring}`;
     }
 
-    // Build driven params list
-    let drivenHtml = '';
-    if (knob.curves && knob.curves.length > 0) {
-      drivenHtml = `
-        <div class="popover-section">
-          <div class="popover-section-title">DRIVES ${knob.curves.length} PARAMETERS</div>
-          <ul class="popover-driven-list">
-            ${knob.curves
-              .map((c) => {
-                const isDsp = c.target.startsWith('__dsp__.');
-                const targetName = isDsp ? c.target.replace('__dsp__.', 'Live DSP: ') : c.target;
-                return `<li><code>${targetName}</code>: ${c.lo} → ${c.hi}</li>`;
-              })
-              .join('')}
-          </ul>
-        </div>
-      `;
-    }
-
     bodyEl.innerHTML = `
       <div class="popover-section">
         <div class="popover-section-title">DEFEATS DETECTION VECTOR</div>
@@ -126,55 +75,6 @@ export class UIController {
       <div class="popover-section">
         <div class="popover-section-title">FIDELITY TRADEOFF</div>
         <p>${knob.info.tradeoff}</p>
-      </div>
-      ${drivenHtml}
-    `;
-
-    popover.classList.add('open');
-    if (backdrop) backdrop.classList.add('open');
-  }
-
-  /**
-   * Show info popover for a raw parameter.
-   * @param {string} rawKey
-   * @param {HTMLElement} triggerEl
-   */
-  showRawParamInfo(rawKey, triggerEl) {
-    const raw = this.registry.rawParams.find((p) => p.key === rawKey);
-    if (!raw) return;
-
-    const popover = document.getElementById('infoPopover');
-    const titleEl = document.getElementById('popoverTitle');
-    const badgeEl = document.getElementById('popoverBadge');
-    const bodyEl = document.getElementById('popoverBody');
-    const backdrop = document.getElementById('popoverBackdrop');
-    if (!popover || !bodyEl) return;
-
-    if (titleEl) titleEl.textContent = raw.label;
-    if (badgeEl) {
-      badgeEl.textContent = raw.subsystemTitle || raw.subsystem.toUpperCase();
-      badgeEl.className = 'popover-badge';
-    }
-
-    const parentKnob = this.registry.compositeKnobs.find((k) => k.id === raw.parentComposite);
-    const parentLabel = parentKnob ? parentKnob.label : 'None';
-
-    bodyEl.innerHTML = `
-      <div class="popover-section">
-        <div class="popover-section-title">PARAMETER KEY</div>
-        <code>${raw.key}</code>
-      </div>
-      <div class="popover-section">
-        <div class="popover-section-title">DESCRIPTION</div>
-        <p>${raw.info}</p>
-      </div>
-      <div class="popover-section">
-        <div class="popover-section-title">PARENT COMPOSITE KNOB</div>
-        <p class="popover-highlight">${parentLabel}</p>
-      </div>
-      <div class="popover-section">
-        <div class="popover-section-title">SPECIFICATION</div>
-        <p>Range: ${raw.min} – ${raw.max} ${raw.unit} | Default: ${raw.default} | Step: ${raw.step}</p>
       </div>
     `;
 

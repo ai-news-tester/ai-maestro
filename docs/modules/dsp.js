@@ -385,9 +385,8 @@ export class NaSunoDSP {
    * Zero delay: applies immediately with 25ms smoothing to prevent clicks.
    * @param {string} knobId
    * @param {number} val
-   * @param {Object} rawUpdates
    */
-  updateFromKnob(knobId, val, rawUpdates = {}) {
+  updateFromKnob(knobId, val) {
     if (!this.ctx) return;
     this.params[knobId] = val;
     const now = this.ctx.currentTime;
@@ -502,13 +501,13 @@ export class NaSunoDSP {
         break;
       }
       case 'qualityGate': {
-        const lvl = Math.max(1, Math.min(5, val));
-        const thresh = -0.2 - 0.45 * lvl; // -0.65 dB down to -2.45 dB brickwall ceiling
+        const lvl = Math.max(1, Math.min(6, val));
+        const thresh = -0.2 - 0.45 * lvl; // -0.65 dB down to -2.90 dB brickwall ceiling
         if (this.qualityLimiter) this.qualityLimiter.threshold.setTargetAtTime(thresh, now, ramp);
         break;
       }
       case 'outputGain': {
-        const gainLinear = Math.pow(10, (val * 1.2) / 20); // clean output staging
+        const gainLinear = Math.pow(10, val / 20); // clean output staging
         if (this.outGain) this.outGain.gain.setTargetAtTime(gainLinear, now, ramp);
         break;
       }
@@ -516,79 +515,12 @@ export class NaSunoDSP {
   }
 
   /**
-   * Update real-time DSP immediately when a raw parameter is edited in Advanced Mode.
-   * Directly routes the low-level parameter to the respective DSP AudioParam.
-   * @param {string} rawKey
-   * @param {number} val
-   */
-  updateFromRawKey(rawKey, val) {
-    if (!this.ctx) return;
-    const now = this.ctx.currentTime;
-    const ramp = 0.025;
-
-    if (rawKey === 'classical.carrier_notch_q') {
-      const q = Math.max(2.0, Math.min(65.0, val * 0.5));
-      if (this.notch1) this.notch1.Q.setTargetAtTime(q, now, ramp);
-      if (this.notch2) this.notch2.Q.setTargetAtTime(q * 0.85, now, ramp);
-      if (this.notch3) this.notch3.Q.setTargetAtTime(q * 0.7, now, ramp);
-    } else if (rawKey === 'upsampler.max_cut_db') {
-      const safeCut = Math.min(10.0, val);
-      if (this.stride1) this.stride1.gain.setTargetAtTime(-safeCut, now, ramp);
-      if (this.stride2) this.stride2.gain.setTargetAtTime(-safeCut * 0.7, now, ramp);
-    } else if (rawKey === 'classical.max_echo_cut_db') {
-      const safeCut = Math.min(8.0, val * 0.45);
-      if (this.stegoComb) this.stegoComb.gain.setTargetAtTime(-safeCut, now, ramp);
-    } else if (rawKey === 'neural_residual.high_freq_damping') {
-      const cut = -Math.min(12.0, val * 15); // safe air damping
-      if (this.neuralFilter) this.neuralFilter.gain.setTargetAtTime(cut, now, ramp);
-    } else if (rawKey === 'mel_domain.blend_ratio_max') {
-      const cut = -Math.min(6.0, val * 8);
-      if (this.blendFilter1) this.blendFilter1.gain.setTargetAtTime(cut, now, ramp);
-      if (this.blendFilter2) this.blendFilter2.gain.setTargetAtTime(cut * 0.9, now, ramp);
-    } else if (rawKey === 'phase_decorrelate.steady_state_dispersion_max') {
-      const q = 0.5 + val * 12;
-      if (this.allpass1) this.allpass1.Q.setTargetAtTime(q, now, ramp);
-      if (this.allpass2) this.allpass2.Q.setTargetAtTime(q * 1.2, now, ramp);
-      if (this.allpass3) this.allpass3.Q.setTargetAtTime(q * 1.4, now, ramp);
-    } else if (rawKey === 'distribution_noise_level') {
-      const norm = Math.min(1.0, val * 100);
-      if (this.statShaper) this.statShaper.curve = NaSunoDSP.makeStatCurve(norm);
-    } else if (rawKey === 'hash_disrupt.base_cents') {
-      const depth = Math.max(0.0001, Math.min(0.0018, (val / 100) * 0.018));
-      if (this.hashLfoGain) this.hashLfoGain.gain.setTargetAtTime(depth, now, ramp);
-    } else if (rawKey === 'hash_disrupt.wow_rate_hz') {
-      const safeRate = Math.min(0.8, val);
-      if (this.hashLfo) this.hashLfo.frequency.setTargetAtTime(safeRate, now, ramp);
-    } else if (rawKey === 'environment.early_reflection_level') {
-      const safeWet = Math.min(0.25, val);
-      if (this.roomReturn) this.roomReturn.gain.setTargetAtTime(safeWet, now, ramp);
-    } else if (rawKey === 'harmonic_distortion_amount') {
-      const norm = Math.min(1.0, val * 100);
-      if (this.textureShaper) this.textureShaper.curve = NaSunoDSP.makeTextureCurve(norm);
-    } else if (rawKey === 'mastering.air_gain_db_max') {
-      if (this.shelf) this.shelf.gain.setTargetAtTime(val, now, ramp);
-    } else if (rawKey === 'dynamics.compressor_threshold_db') {
-      const safeThresh = Math.max(-24.0, val);
-      if (this.dynamicsComp) this.dynamicsComp.threshold.setTargetAtTime(safeThresh, now, ramp);
-    } else if (rawKey === 'dynamics.compressor_ratio') {
-      const safeRatio = Math.min(4.0, val);
-      if (this.dynamicsComp) this.dynamicsComp.ratio.setTargetAtTime(safeRatio, now, ramp);
-    } else if (rawKey === 'firewall.brickwall_ceiling_db') {
-      if (this.qualityLimiter) this.qualityLimiter.threshold.setTargetAtTime(val, now, ramp);
-    }
-  }
-
-  /**
    * Bulk-update all 14 DSP nodes from the full state dictionary.
    * @param {Object} compositeValues
-   * @param {Object} rawState
    */
-  updateAllFromState(compositeValues = {}, rawState = {}) {
+  updateAllFromState(compositeValues = {}) {
     for (const [knobId, val] of Object.entries(compositeValues)) {
       this.updateFromKnob(knobId, val);
-    }
-    for (const [rawKey, val] of Object.entries(rawState)) {
-      this.updateFromRawKey(rawKey, val);
     }
   }
 
@@ -753,10 +685,18 @@ export class NaSunoDSP {
     const statShaper = offlineCtx.createWaveShaper();
     statShaper.curve = NaSunoDSP.makeStatCurve(statNorm);
 
-    // 8. Hash Break (Micro-warp delay offset up to 1.8ms)
+    // 8. Hash Break (Micro-warp delay + LFO, same as live chain: 0.003s base, 0.25-0.8 Hz, 0.0001-0.0018s depth)
     const hashNorm = (params.hashBreak ?? 30) / 100;
     const hashDelay = offlineCtx.createDelay(0.05);
-    hashDelay.delayTime.value = 0.0001 + 0.0017 * hashNorm;
+    hashDelay.delayTime.value = 0.003;
+    const hashLfo = offlineCtx.createOscillator();
+    hashLfo.type = 'sine';
+    hashLfo.frequency.value = 0.25 + 0.55 * hashNorm;
+    const hashLfoGain = offlineCtx.createGain();
+    hashLfoGain.gain.value = 0.0001 + 0.0017 * hashNorm;
+    hashLfo.connect(hashLfoGain);
+    hashLfoGain.connect(hashDelay.delayTime);
+    hashLfo.start(0);
 
     // 9. Room Inject (Early reflection acoustic network - subtle room ambiance)
     const rNorm = (params.roomInject ?? 35) / 100;
@@ -793,8 +733,8 @@ export class NaSunoDSP {
     dynComp.attack.value = 0.025;
     dynComp.release.value = 0.14;
 
-    // 13. Quality Limiter (Ceiling down to -2.45 dB)
-    const qLvl = Math.max(1, Math.min(5, params.qualityGate ?? 3));
+    // 13. Quality Limiter (Ceiling down to -2.90 dB)
+    const qLvl = Math.max(1, Math.min(6, params.qualityGate ?? 3));
     const limiter = offlineCtx.createDynamicsCompressor();
     limiter.threshold.value = -0.2 - 0.45 * qLvl;
     limiter.ratio.value = 20.0;
@@ -803,7 +743,7 @@ export class NaSunoDSP {
 
     // 14. Master Gain
     const outGain = offlineCtx.createGain();
-    const gainLinear = Math.pow(10, ((params.outputGain ?? 0.0) * 1.2) / 20);
+    const gainLinear = Math.pow(10, (params.outputGain ?? 0.0) / 20);
     outGain.gain.value = gainLinear;
 
     // Wire complete 14-node cascade in OfflineContext

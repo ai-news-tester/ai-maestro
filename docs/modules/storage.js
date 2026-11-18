@@ -1,6 +1,6 @@
 /**
  * NaSuno Browser Persistence Module
- * - LocalStorage for DSP knob values, presets, bypass state, and raw parameters
+ * - LocalStorage for DSP knob values, presets, and bypass state
  * - IndexedDB for persisting user-uploaded audio files across browser reloads
  */
 
@@ -12,7 +12,7 @@ const AUDIO_RECORD_KEY = 'active_track';
 
 export class PersistenceManager {
   /**
-   * Save DSP knob values, preset key, raw state, and bypass flag.
+   * Save DSP knob values, preset key, and bypass flag.
    * @param {Object} settings
    */
   static saveSettings(settings = {}) {

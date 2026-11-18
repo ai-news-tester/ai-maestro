@@ -6,20 +6,10 @@
 
 import { SunoDetector, StegoDetector, SpectralAnalyzer } from './modules/analyzer.js';
 import { NaSunoDSP } from './modules/dsp.js';
-import { CompositeEngine } from './modules/composite.js';
 import { SpectrumRenderer } from './modules/spectrum.js';
 import { UIController } from './modules/ui.js';
-import { ConfigIO } from './modules/config-io.js';
 import { RegistryDOM } from './modules/registry.js';
 import { PersistenceManager } from './modules/storage.js';
-import {
-  AuthPersistence,
-  verifyGitHubStatus,
-  getDeveloperRepos,
-  ENABLE_AUTH_GATE,
-  REQUIRE_FOLLOW_VERIFICATION,
-  REQUIRE_STAR_VERIFICATION
-} from './modules/auth.js';
 
 // ============================================================================
 // Application State
@@ -43,8 +33,6 @@ let playbackStartTime = 0;
 let playbackOffset = 0;
 let isUserScrubbing = false;
 let seekerAnimFrame = null;
-
-const currentRawState = {};
 
 // ============================================================================
 // Audio Context & Playback Management
@@ -72,7 +60,7 @@ function applyCompositeKnobDSP() {
   for (const [id, knob] of Object.entries(registryDom.knobsMap)) {
     currentKnobValues[id] = knob.val;
   }
-  dsp.updateAllFromState(currentKnobValues, currentRawState);
+  dsp.updateAllFromState(currentKnobValues);
 }
 
 async function loadAudioFile(url) {
@@ -233,10 +221,11 @@ function updateTelemetryUI(suno, stego, spec, buffer) {
   const valCrest = document.getElementById('valCrest');
   const valPeak = document.getElementById('valPeak');
   const valRms = document.getElementById('valRms');
+  const fmtDb = (v) => (Number.isFinite(v) ? v.toFixed(1) : '-∞'); // silence is -Infinity, not "-Infinity"
   if (valFlatness) valFlatness.textContent = spec.spectralFlatness.toFixed(4);
   if (valCrest) valCrest.textContent = `Crest ${spec.crestFactorDB.toFixed(1)} dB`;
-  if (valPeak) valPeak.textContent = `Peak ${spec.peakDBFS.toFixed(1)} dBFS`;
-  if (valRms) valRms.textContent = `RMS ${spec.rmsDBFS.toFixed(1)} dBFS`;
+  if (valPeak) valPeak.textContent = `Peak ${fmtDb(spec.peakDBFS)} dBFS`;
+  if (valRms) valRms.textContent = `RMS ${fmtDb(spec.rmsDBFS)} dBFS`;
 }
 
 function formatPlaybackTime(seconds) {
@@ -293,11 +282,6 @@ function stopSeekerLoop() {
 }
 
 function startPlayback(seekOffset = null) {
-  if (!isEngineUnlocked()) {
-    stopPlayback(false);
-    showAuthGate();
-    return;
-  }
   if (!currentBuffer) return;
   ensureAudioContext();
 
@@ -417,7 +401,7 @@ function updatePlayButtonUI(playing) {
 let persistTimeout = null;
 
 /**
- * Persist current composite knob values, raw state, preset, and bypass flag to LocalStorage.
+ * Persist current composite knob values, preset, and bypass flag to LocalStorage.
  */
 function persistCurrentSettings() {
   if (persistTimeout) clearTimeout(persistTimeout);
@@ -430,29 +414,17 @@ function persistCurrentSettings() {
     PersistenceManager.saveSettings({
       presetKey: currentPresetKey,
       compositeValues,
-      rawState: currentRawState,
       isBypassed: dsp ? dsp.isBypassed : false,
       timestamp: Date.now(),
     });
   }, 120);
 }
 
-/**
- * Forward sync: Composite knob turned -> update Advanced inputs & DSP with zero delay.
- */
+/** Composite knob turned -> update DSP with zero delay. */
 function handleCompositeKnobChange(knobId, knobVal) {
   if (!registry || !registryDom) return;
 
-  const { rawUpdates } = CompositeEngine.mapForward(knobId, knobVal, registry);
-
-  // Update raw parameter state and Advanced Mode input fields
-  for (const [key, val] of Object.entries(rawUpdates)) {
-    currentRawState[key] = val;
-    registryDom.setRawInputValue(key, val);
-  }
-
-  // If currently bypassed (e.g. from selecting 'Off' profile or Original track),
-  // automatically re-engage DSP so moving knobs immediately reveals the live effect!
+  // If currently bypassed, automatically re-engage DSP so moving knobs reveals the live effect!
   if (dsp && dsp.isBypassed) {
     if (ui) ui.setBypassState(false);
     dsp.setBypass(false);
@@ -470,64 +442,11 @@ function handleCompositeKnobChange(knobId, knobVal) {
 
   // Update live DSP node immediately with zero delay!
   if (dsp) {
-    dsp.updateFromKnob(knobId, knobVal, rawUpdates);
+    dsp.updateFromKnob(knobId, knobVal);
   }
 
   // Persist progress to browser storage
   persistCurrentSettings();
-}
-
-/**
- * Reverse sync: Advanced raw input changed -> update composite knob or show CUSTOM & update DSP.
- */
-function handleRawInputChange(key, val) {
-  if (!registry || !registryDom) return;
-  currentRawState[key] = val;
-
-  const rev = CompositeEngine.mapReverse(key, val, registry, currentRawState);
-  if (rev && rev.knobId) {
-    const parentKnob = registryDom.knobsMap[rev.knobId];
-    if (parentKnob) {
-      if (rev.isCustom) {
-        parentKnob.setCustom(true);
-      } else if (rev.val !== null) {
-        parentKnob.setValue(rev.val, false);
-      }
-    }
-  }
-
-  // If currently bypassed, automatically re-engage DSP
-  if (dsp && dsp.isBypassed) {
-    if (ui) ui.setBypassState(false);
-    dsp.setBypass(false);
-    const trackCleanBtn = document.getElementById('trackCleanBtn');
-    const trackRawBtn = document.getElementById('trackRawBtn');
-    if (trackCleanBtn) trackCleanBtn.classList.add('active');
-    if (trackRawBtn) trackRawBtn.classList.remove('active');
-  }
-
-  if (currentPresetKey !== 'custom') {
-    currentPresetKey = 'custom';
-    if (ui) ui.setPresetDisplay('custom');
-  }
-
-  // Live DSP: Update respective node from raw parameter immediately with zero delay!
-  if (dsp) {
-    dsp.updateFromRawKey(key, val);
-  }
-
-  // Persist progress to browser storage
-  persistCurrentSettings();
-}
-
-/**
- * Reset composite knob to curve when "CUSTOM ↺" is clicked.
- */
-function handleResetToCurve(knobId) {
-  const knob = registryDom?.knobsMap[knobId];
-  if (!knob) return;
-  knob.setCustom(false);
-  handleCompositeKnobChange(knobId, knob.val);
 }
 
 // ============================================================================
@@ -541,14 +460,7 @@ function applyPreset(presetKey) {
   // Apply composite knob values from preset
   for (const [knobId, val] of Object.entries(p.compositeValues)) {
     const k = registryDom.knobsMap[knobId];
-    if (k) {
-      k.setValue(val, false);
-      const { rawUpdates } = CompositeEngine.mapForward(knobId, val, registry);
-      for (const [rawKey, rawVal] of Object.entries(rawUpdates)) {
-        currentRawState[rawKey] = rawVal;
-        registryDom.setRawInputValue(rawKey, rawVal);
-      }
-    }
+    if (k) k.setValue(val, false);
   }
 
   applyCompositeKnobDSP();
@@ -577,321 +489,6 @@ function applyPreset(presetKey) {
 }
 
 // ============================================================================
-// Auth & Community Verification Gate
-// ============================================================================
-function isEngineUnlocked() {
-  if (!ENABLE_AUTH_GATE) return true;
-  return AuthPersistence.isUnlocked();
-}
-
-function showAuthGate() {
-  const gateEl = document.getElementById('nasunoAuthGate');
-  if (gateEl) {
-    gateEl.style.display = 'flex';
-  }
-  if (ENABLE_AUTH_GATE) {
-    document.documentElement.classList.remove('nasuno-unlocked');
-  }
-  const pillEl = document.getElementById('verifiedPill');
-  if (pillEl && ENABLE_AUTH_GATE) pillEl.style.display = 'none';
-
-  if (REQUIRE_STAR_VERIFICATION) {
-    const unstarredSection = document.getElementById('unstarredSection');
-    if (unstarredSection) unstarredSection.style.display = 'block';
-    const stepStars = document.getElementById('stepStars');
-    if (stepStars) stepStars.style.display = 'flex';
-    populateInitialRepositories();
-  } else {
-    const unstarredSection = document.getElementById('unstarredSection');
-    if (unstarredSection) unstarredSection.style.display = 'none';
-    const stepStars = document.getElementById('stepStars');
-    if (stepStars) stepStars.style.display = 'none';
-  }
-
-  if (!REQUIRE_FOLLOW_VERIFICATION) {
-    const stepFollowUser = document.getElementById('stepFollowUser');
-    if (stepFollowUser) stepFollowUser.style.display = 'none';
-    const stepFollowOrg = document.getElementById('stepFollowOrg');
-    if (stepFollowOrg) stepFollowOrg.style.display = 'none';
-  } else {
-    const stepFollowUser = document.getElementById('stepFollowUser');
-    if (stepFollowUser) stepFollowUser.style.display = 'flex';
-    const stepFollowOrg = document.getElementById('stepFollowOrg');
-    if (stepFollowOrg) stepFollowOrg.style.display = 'flex';
-  }
-}
-
-function hideAuthGate(username) {
-  const gateEl = document.getElementById('nasunoAuthGate');
-  if (gateEl) {
-    gateEl.style.display = 'none';
-  }
-  document.documentElement.classList.add('nasuno-unlocked');
-  const pillEl = document.getElementById('verifiedPill');
-  const userLabel = document.getElementById('verifiedUserLabel');
-  if (pillEl) pillEl.style.display = 'inline-flex';
-  if (userLabel) userLabel.textContent = `@${username || 'User'}`;
-}
-
-let cachedDevRepos = null;
-async function populateInitialRepositories() {
-  if (!REQUIRE_STAR_VERIFICATION) return;
-  const unstarredList = document.getElementById('unstarredList');
-  const unstarredBadge = document.getElementById('unstarredBadge');
-  if (!unstarredList) return;
-
-  try {
-    if (!cachedDevRepos) {
-      cachedDevRepos = await getDeveloperRepos();
-    }
-    const repos = Object.values(cachedDevRepos);
-    renderUnstarredList(repos);
-    if (unstarredBadge) unstarredBadge.textContent = `${repos.length} Repos`;
-  } catch (_) {}
-}
-
-function renderUnstarredList(repos) {
-  const unstarredList = document.getElementById('unstarredList');
-  const unstarredBadge = document.getElementById('unstarredBadge');
-  if (!unstarredList) return;
-
-  unstarredList.innerHTML = '';
-  if (!repos || repos.length === 0) {
-    unstarredList.innerHTML = '<div style="color: #10b981; font-family: var(--font-mono); font-size: 11px; padding: 6px 0;">All core repositories starred! Full audio forensic engine unlocked.</div>';
-    if (unstarredBadge) {
-      unstarredBadge.textContent = 'All Starred';
-      unstarredBadge.style.color = '#10b981';
-      unstarredBadge.style.borderColor = 'rgba(16, 185, 129, 0.4)';
-      unstarredBadge.style.background = 'rgba(16, 185, 129, 0.12)';
-    }
-    return;
-  }
-
-  if (unstarredBadge) {
-    unstarredBadge.textContent = `${repos.length} Remaining`;
-    unstarredBadge.style.color = 'var(--fl-orange)';
-    unstarredBadge.style.borderColor = 'rgba(255, 118, 25, 0.3)';
-    unstarredBadge.style.background = 'rgba(255, 118, 25, 0.15)';
-  }
-
-  for (const repo of repos) {
-    const item = document.createElement('div');
-    item.className = 'unstarred-item';
-
-    const nameSpan = document.createElement('span');
-    nameSpan.className = 'unstarred-repo-name';
-    nameSpan.title = repo.name;
-    nameSpan.textContent = repo.name;
-
-    const starLink = document.createElement('a');
-    starLink.className = 'btn-star-repo';
-    const safeUrl = repo.url && (repo.url.startsWith('https://github.com/') || repo.url.startsWith('http://github.com/'))
-      ? repo.url
-      : `https://github.com/${encodeURIComponent(repo.name)}`;
-    starLink.href = safeUrl;
-    starLink.target = '_blank';
-    starLink.rel = 'noopener noreferrer';
-    starLink.innerHTML = '<span>★</span><span>STAR ON GITHUB ↗</span>';
-
-    item.appendChild(nameSpan);
-    item.appendChild(starLink);
-    unstarredList.appendChild(item);
-  }
-}
-
-function setupAuthGate() {
-  const form = document.getElementById('authGateForm');
-  const input = document.getElementById('authUsernameInput');
-  const verifyBtn = document.getElementById('authVerifyBtn');
-  const statusMsg = document.getElementById('authStatusMsg');
-  const lockBtn = document.getElementById('verifiedLockBtn');
-
-  const stepFollowUser = document.getElementById('stepFollowUser');
-  const stepFollowUserStatus = document.getElementById('stepFollowUserStatus');
-  const stepFollowOrg = document.getElementById('stepFollowOrg');
-  const stepFollowOrgStatus = document.getElementById('stepFollowOrgStatus');
-  const stepStars = document.getElementById('stepStars');
-  const stepStarsStatus = document.getElementById('stepStarsStatus');
-
-  if (!REQUIRE_FOLLOW_VERIFICATION) {
-    if (stepFollowUser) stepFollowUser.style.display = 'none';
-    if (stepFollowOrg) stepFollowOrg.style.display = 'none';
-  }
-
-  if (!REQUIRE_STAR_VERIFICATION) {
-    if (stepStars) stepStars.style.display = 'none';
-    const unstarredSection = document.getElementById('unstarredSection');
-    if (unstarredSection) unstarredSection.style.display = 'none';
-  }
-
-  if (!ENABLE_AUTH_GATE) {
-    hideAuthGate('Community');
-    const authTitle = document.getElementById('authGateTitle');
-    if (authTitle) authTitle.textContent = 'COMMUNITY SUPPORT & UPDATES';
-    const authDesc = document.querySelector('.auth-card-desc');
-    if (authDesc) {
-      authDesc.textContent = 'Your star and support is what keeps me going, and I\'ll keep NaSuno forever free with continuous evasion updates! If this tool helped you, please drop a star on GitHub.';
-    }
-  } else if (AuthPersistence.isUnlocked()) {
-    const savedUser = AuthPersistence.getSavedUsername();
-    hideAuthGate(savedUser);
-  } else {
-    showAuthGate();
-  }
-
-  // Backdrop click & close button handler when auth gate is disabled
-  const gateEl = document.getElementById('nasunoAuthGate');
-  if (gateEl) {
-    gateEl.addEventListener('click', (e) => {
-      if (!ENABLE_AUTH_GATE && e.target === gateEl) {
-        gateEl.style.display = 'none';
-      }
-    });
-  }
-
-  const gateCloseBtn = document.getElementById('authGateCloseBtn');
-  if (gateCloseBtn) {
-    gateCloseBtn.addEventListener('click', () => {
-      if (gateEl) gateEl.style.display = 'none';
-    });
-  }
-
-  const pillEl = document.getElementById('verifiedPill');
-  if (pillEl) {
-    pillEl.style.cursor = 'pointer';
-    pillEl.addEventListener('click', () => {
-      showAuthGate();
-    });
-  }
-
-  if (lockBtn) {
-    lockBtn.addEventListener('click', () => {
-      AuthPersistence.logoutUser();
-      if (isPlaying) stopPlayback(true);
-      showAuthGate();
-      if (statusMsg) {
-        statusMsg.className = 'auth-status-banner error';
-        statusMsg.textContent = 'Session locked. Enter your GitHub username or dev bypass key (btdev) to unlock.';
-        statusMsg.style.display = 'block';
-      }
-    });
-  }
-
-  const handleVerify = async () => {
-    const val = (input?.value || '').trim();
-    if (!val) {
-      if (statusMsg) {
-        statusMsg.className = 'auth-status-banner error';
-        statusMsg.textContent = 'Please enter a GitHub username or dev bypass key.';
-        statusMsg.style.display = 'block';
-      }
-      return;
-    }
-
-    if (verifyBtn) {
-      verifyBtn.disabled = true;
-      verifyBtn.classList.add('loading');
-    }
-    if (statusMsg) statusMsg.style.display = 'none';
-
-    try {
-      const res = await verifyGitHubStatus(val);
-
-      if (stepFollowUser && stepFollowUserStatus) {
-        if (!REQUIRE_FOLLOW_VERIFICATION) {
-          stepFollowUser.style.display = 'none';
-        } else if (res.isFollowingUser) {
-          stepFollowUser.className = 'auth-step-row step-passed';
-          stepFollowUserStatus.textContent = 'Followed ✓';
-        } else if (res.isRateLimited) {
-          stepFollowUser.className = 'auth-step-row';
-          stepFollowUserStatus.textContent = 'API Limited';
-        } else {
-          stepFollowUser.className = 'auth-step-row step-failed';
-          stepFollowUserStatus.textContent = 'Missing ✗';
-        }
-      }
-
-      if (stepFollowOrg && stepFollowOrgStatus) {
-        if (!REQUIRE_FOLLOW_VERIFICATION) {
-          stepFollowOrg.style.display = 'none';
-        } else if (res.isFollowingOrg) {
-          stepFollowOrg.className = 'auth-step-row step-passed';
-          stepFollowOrgStatus.textContent = 'Followed ✓';
-        } else if (res.isRateLimited) {
-          stepFollowOrg.className = 'auth-step-row';
-          stepFollowOrgStatus.textContent = 'API Limited';
-        } else {
-          stepFollowOrg.className = 'auth-step-row step-failed';
-          stepFollowOrgStatus.textContent = 'Missing ✗';
-        }
-      }
-
-      if (stepStars && stepStarsStatus) {
-        if (!REQUIRE_STAR_VERIFICATION) {
-          stepStars.style.display = 'none';
-        } else if (res.unstarred.length === 0) {
-          stepStars.className = 'auth-step-row step-passed';
-          stepStarsStatus.textContent = 'All Starred ✓';
-        } else if (res.isRateLimited) {
-          stepStars.className = 'auth-step-row';
-          stepStarsStatus.textContent = `${res.unstarred.length} Repos`;
-        } else {
-          stepStars.className = 'auth-step-row step-failed';
-          stepStarsStatus.textContent = `${res.unstarred.length} Remaining ✗`;
-        }
-      }
-      if (REQUIRE_STAR_VERIFICATION) {
-        renderUnstarredList(res.unstarred);
-      }
-
-      if (res.success) {
-        AuthPersistence.loginUser(res.username);
-        if (statusMsg) {
-          statusMsg.className = 'auth-status-banner success';
-          statusMsg.textContent = res.message || 'Verification complete! Unlocking engine...';
-          statusMsg.style.display = 'block';
-        }
-        setTimeout(() => {
-          hideAuthGate(res.username);
-          if (verifyBtn) {
-            verifyBtn.disabled = false;
-            verifyBtn.classList.remove('loading');
-          }
-        }, 500);
-      } else {
-        if (statusMsg) {
-          statusMsg.className = 'auth-status-banner error';
-          statusMsg.textContent = res.message;
-          statusMsg.style.display = 'block';
-        }
-        if (verifyBtn) {
-          verifyBtn.disabled = false;
-          verifyBtn.classList.remove('loading');
-        }
-      }
-    } catch (err) {
-      if (statusMsg) {
-        statusMsg.className = 'auth-status-banner error';
-        statusMsg.textContent = `Verification error: ${err.message || 'Network request failed'}`;
-        statusMsg.style.display = 'block';
-      }
-      if (verifyBtn) {
-        verifyBtn.disabled = false;
-        verifyBtn.classList.remove('loading');
-      }
-    }
-  };
-
-  if (form) {
-    form.addEventListener('submit', (e) => {
-      e.preventDefault();
-      handleVerify();
-    });
-  }
-}
-
-// ============================================================================
 // Export WAV Offline Handler
 // ============================================================================
 function setupExportWAV() {
@@ -900,11 +497,6 @@ function setupExportWAV() {
   if (!exportBtn) return;
 
   exportBtn.addEventListener('click', async () => {
-    if (!isEngineUnlocked()) {
-      showAuthGate();
-      return;
-    }
-
     if (!currentBuffer) {
       if (statusEl) statusEl.textContent = 'Load or upload an audio file first.';
       return;
@@ -937,7 +529,7 @@ function setupExportWAV() {
       URL.revokeObjectURL(downloadUrl);
 
       if (statusEl) {
-        statusEl.innerHTML = `Export complete! ★ <a href="https://github.com/AhmadHassan-BTed/NaSuno" target="_blank" rel="noopener noreferrer" style="color: #ff9800; text-decoration: underline; font-weight: 700;">Star on GitHub</a> keeps NaSuno free &amp; updated!`;
+        statusEl.textContent = 'Export complete!';
       }
     } catch (err) {
       console.error('Export error:', err);
@@ -953,55 +545,13 @@ function setupExportWAV() {
 // ============================================================================
 document.addEventListener('DOMContentLoaded', async () => {
   try {
-    // 0. Initialize Verification Lock & Gate
-    setupAuthGate();
-
     // 1. Load registry JSON
     registry = await RegistryDOM.load('knob-registry.json');
-
-    // Initialize raw state cache with defaults
-    for (const p of registry.rawParams) {
-      currentRawState[p.key] = p.default;
-    }
 
     // 2. Instantiate and render DOM
     registryDom = new RegistryDOM(registry);
     registryDom.renderAll({
       onKnobInfoClick: (knobId, btn) => ui.showCompositeInfo(knobId, btn),
-      onResetToCurve: (knobId) => handleResetToCurve(knobId),
-      onRawInfoClick: (rawKey, btn) => ui.showRawParamInfo(rawKey, btn),
-      onRawInputChange: (key, val) => handleRawInputChange(key, val),
-      onDownloadTemplate: () => {
-        const tpl = ConfigIO.generateTemplate(registry);
-        ConfigIO.downloadFile('engine_knobs_template.json', tpl);
-      },
-      onImport: (jsonStr, statusEl) => {
-        const res = ConfigIO.parseAndValidate(jsonStr, registry);
-        if (!res.success) {
-          statusEl.textContent = res.errors.join('; ');
-          statusEl.className = 'import-status error';
-          return;
-        }
-
-        // Apply imported parameters
-        for (const [k, v] of Object.entries(res.params)) {
-          currentRawState[k] = v;
-          registryDom.setRawInputValue(k, v);
-          handleRawInputChange(k, v);
-        }
-
-        if (res.detectedPreset) {
-          ui.setPresetDisplay(res.detectedPreset);
-        }
-
-        const warnText = res.warnings.length > 0 ? ` (${res.warnings.length} warnings)` : '';
-        statusEl.textContent = `Successfully imported ${Object.keys(res.params).length} parameters!${warnText}`;
-        statusEl.className = 'import-status success';
-      },
-      onExport: () => {
-        const exported = ConfigIO.exportConfig(currentRawState, registry, currentPresetKey);
-        ConfigIO.downloadFile('engine_knobs.json', exported);
-      },
     });
 
     // 3. Connect composite knob change listeners
@@ -1071,7 +621,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           currentTrackType = 'cleaned';
           if (dsp) dsp.setBypass(false);
           if (ui) ui.setBypassState(false);
-          loadAudioFile('audio/demo_cleaned.wav');
+          loadAudioFile('audio/demo_original.wav');
         }
       });
     }
@@ -1113,19 +663,13 @@ document.addEventListener('DOMContentLoaded', async () => {
           scopeModeLabel.textContent = '2048-POINT FFT • DUAL-TRACE OVERLAY (ORANGE GHOST: ORIGINAL • CYAN: LIVE EVASION)';
         }
         currentTrackType = 'cleaned';
-        loadAudioFile('audio/demo_cleaned.wav');
+        loadAudioFile('audio/demo_original.wav');
       });
     }
 
     const uploadInput = document.getElementById('userAudioUpload');
     if (uploadInput) {
       uploadInput.addEventListener('change', async (e) => {
-        if (!isEngineUnlocked()) {
-          showAuthGate();
-          e.target.value = '';
-          return;
-        }
-
         const file = e.target.files[0];
         if (!file) return;
 
@@ -1182,17 +726,6 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // 7. WAV & Config Export setup
     setupExportWAV();
-    const quickExportBtn = document.getElementById('quickExportConfigBtn');
-    if (quickExportBtn) {
-      quickExportBtn.addEventListener('click', () => {
-        if (!isEngineUnlocked()) {
-          showAuthGate();
-          return;
-        }
-        const exported = ConfigIO.exportConfig(currentRawState, registry, currentPresetKey);
-        ConfigIO.downloadFile('engine_knobs.json', exported);
-      });
-    }
 
     // 8. Playback Seeker / Scrubber setup
     setupSeekerControls();
@@ -1207,12 +740,6 @@ document.addEventListener('DOMContentLoaded', async () => {
       for (const [knobId, val] of Object.entries(savedSettings.compositeValues)) {
         const k = registryDom.knobsMap[knobId];
         if (k) k.setValue(val, false);
-      }
-      if (savedSettings.rawState) {
-        for (const [rawKey, rawVal] of Object.entries(savedSettings.rawState)) {
-          currentRawState[rawKey] = rawVal;
-          registryDom.setRawInputValue(rawKey, rawVal);
-        }
       }
       applyCompositeKnobDSP();
       if (savedSettings.isBypassed) {
@@ -1259,11 +786,11 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (statusEl) statusEl.textContent = `Restored session audio: ${savedAudio.fileName}`;
       } catch (err) {
         console.warn('Failed to restore uploaded audio from IndexedDB:', err);
-        loadAudioFile('audio/demo_cleaned.wav');
+        loadAudioFile('audio/demo_original.wav');
       }
     } else {
       // Load default demo track
-      loadAudioFile('audio/demo_cleaned.wav');
+      loadAudioFile('audio/demo_original.wav');
     }
 
   } catch (err) {
