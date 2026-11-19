@@ -6,11 +6,12 @@ Ledger: `.superpowers/sdd/2026-11-16-auto-spotify/progress.md` (git-ignored; rul
 
 ## Done
 - f2ac4fd — cleanup strip (auth/Advanced/Config removed, 14-knob core) + first review fixes, committed on main
-- (this commit) — re-review fix pass: knob fineStep() clean decimals (qualityGate 3→3.02 exact), restore path keeps Shift-tuned values via fineStep, stale Advanced/Config doc lines in app.js/dsp.js removed. `node bug-repro.mjs` all green.
+- 1a3e1ee — re-review fix pass: knob fineStep() clean decimals, restore keeps Shift-tuned values, stale doc lines removed
+- f207cfe — Task 1 complete: K-weighted LUFS + LRA + 4x polyphase true-peak meter in analyzer.js; auto-repro.mjs reference tests PASS (sine -6.06 LUFS / -6.01 dBTP, silence -Inf, inter-sample overs caught)
 
 ## Next
-Task 1 of plan: K-weighted LUFS + 4x true-peak meter in analyzer.js, test-first in auto-repro.mjs.
-Then Tasks 2–7 (full-track analysis incl. measureShimmer, deshimmer knob+stage, shared buildMasterChain, auto.js mapper, AUTO UI, real-track verification).
+Task 2 of plan: analyzeFullTrack(buffer) — full-track stereo analysis incl. measureShimmer (ledgered ruling: implemented here since the deshimmer plan file is absent).
+Then Tasks 3–7 (deshimmer knob+stage, shared buildMasterChain, auto.js mapper, AUTO UI, real-track verification).
 
 ## Resume instructions
 1. `git log --oneline -5` and read the ledger's `Task N: complete` lines — trust them over memory.
