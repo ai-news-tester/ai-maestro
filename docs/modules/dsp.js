@@ -39,6 +39,9 @@ export class NaSunoDSP {
     // 4. Neural Scrub (high-frequency residual filter)
     this.neuralFilter = null;
 
+    // Deshimmer (HF shelf at 10 kHz)
+    this.deshimmerShelf = null;
+
     // 5. Spectral Blend (Mel-domain resonant peak smoother)
     this.blendFilter1 = null;
     this.blendFilter2 = null;
@@ -95,6 +98,7 @@ export class NaSunoDSP {
       hashBreak: 30,
       roomInject: 35,
       textureInject: 35,
+      deshimmer: 0,
       bandwidthHeal: 0.25,
       dynamicsNatural: 40,
       qualityGate: 3,
@@ -182,6 +186,13 @@ export class NaSunoDSP {
     this.neuralFilter.type = 'highshelf';
     this.neuralFilter.frequency.setValueAtTime(15400, now);
     this.neuralFilter.gain.setValueAtTime(-5.4, now);
+
+    // Deshimmer (gentle HF shelf at 10 kHz)
+    this.deshimmerShelf = ctx.createBiquadFilter();
+    this.deshimmerShelf.type = 'highshelf';
+    this.deshimmerShelf.frequency.setValueAtTime(10000, now);
+    this.deshimmerShelf.Q.setValueAtTime(0.7, now);
+    this.deshimmerShelf.gain.setValueAtTime(0, now);
 
     // 5. Spectral Blend (Mel-domain resonant peak smoother)
     this.blendFilter1 = ctx.createBiquadFilter();
@@ -329,8 +340,11 @@ export class NaSunoDSP {
     // -> Neural Scrub Filter
     this.notch3.connect(this.neuralFilter);
 
+    // -> Deshimmer Shelf
+    this.neuralFilter.connect(this.deshimmerShelf);
+    this.deshimmerShelf.connect(this.blendFilter1);
+
     // -> Spectral Blend Peaking Filters
-    this.neuralFilter.connect(this.blendFilter1);
     this.blendFilter1.connect(this.blendFilter2);
 
     // -> Phase Scatter (All-Pass Cascade)
@@ -421,7 +435,8 @@ export class NaSunoDSP {
         break;
       }
       case 'neuralScrub': {
-        const norm = val / 100;
+        const eff = Math.min(100, val + 0.20 * (this.params.deshimmer || 0));
+        const norm = eff / 100;
         // High-shelf cutoff sweeps 19 kHz down to 11 kHz, and cut from 0 dB down to -12 dB (preserves air & cymbals)
         const freq = 19000 - 8000 * norm;
         const cut = 0.0 - 12.0 * norm;
@@ -432,12 +447,19 @@ export class NaSunoDSP {
         break;
       }
       case 'spectralBlend': {
-        const norm = val / 100;
+        const eff = Math.min(100, val + 0.15 * (this.params.deshimmer || 0));
+        const norm = eff / 100;
         // Resonant peak cuts from 0 dB down to -6 dB and -7 dB (smooths unnatural Mel spikes without scooping)
         const cut1 = 0.0 - 6.0 * norm;
         const cut2 = 0.0 - 7.0 * norm;
         if (this.blendFilter1) this.blendFilter1.gain.setTargetAtTime(cut1, now, ramp);
         if (this.blendFilter2) this.blendFilter2.gain.setTargetAtTime(cut2, now, ramp);
+        break;
+      }
+      case 'deshimmer': {
+        if (this.deshimmerShelf) this.deshimmerShelf.gain.setTargetAtTime(-0.06 * val, now, ramp);
+        this.updateFromKnob('neuralScrub', this.params.neuralScrub);
+        this.updateFromKnob('spectralBlend', this.params.spectralBlend);
         break;
       }
       case 'phaseScatter': {
