@@ -235,3 +235,24 @@ const revertIdx = appSrc6.indexOf('revertManualBtn');
 const revertBody = appSrc6.slice(revertIdx, revertIdx + 600);
 assert.ok(revertBody.includes('autoTrimDb: 0') && revertBody.includes('integratedLUFS: null'), 'revert clears AUTO trim and loudness');
 console.log('Task 7 parity: PASS');
+
+// ---- Final review fix pass: races, export clobber, refresh persistence ----
+// RED before fixes: no run token, export overlays autoParams over manual knobs,
+// persistCurrentSettings stores only composite knobs.
+const autoRunBody2 = appSrc6.slice(appSrc6.indexOf('async function runAutoMaster'), appSrc6.indexOf('// ============================================================================\n// Preset Profile Management'));
+assert.ok(autoRunBody2.includes('autoRunToken'), 'runAutoMaster guards stale runs with a token');
+const exportSetupBody = appSrc6.slice(appSrc6.indexOf('function setupExportWAV'), appSrc6.indexOf('// ============================================================================\n// Application Boot'));
+assert.ok(!exportSetupBody.includes('Object.assign(currentKnobValues, autoParams)'), 'export must not clobber manual knob moves with autoParams');
+const persistBody = appSrc6.slice(appSrc6.indexOf('function persistCurrentSettings'), appSrc6.indexOf('/** Composite knob turned'));
+assert.ok(persistBody.includes('autoParams'), 'persistCurrentSettings saves AUTO params');
+const bootBody = appSrc6.slice(appSrc6.indexOf("const savedSettings = PersistenceManager.loadSettings()"));
+assert.ok(bootBody.includes('savedSettings.autoParams'), 'boot restores AUTO params');
+console.log('Final fixes: PASS');
+
+// Refresh parity: dsp is created in ensureAudioContext AFTER boot step 9,
+// so AUTO chain params must be re-pushed there, not only at step 9.
+const ensureBody = appSrc6.slice(appSrc6.indexOf('function ensureAudioContext'), appSrc6.indexOf('function applyCompositeKnobDSP'));
+assert.ok(ensureBody.includes('autoParams'), 'ensureAudioContext restores AUTO chain params on dsp creation');
+const uploadBody = appSrc6.slice(appSrc6.indexOf("uploadInput.addEventListener('change'"), appSrc6.indexOf('// 7. WAV Export setup'));
+assert.ok(uploadBody.includes('autoRunToken'), 'upload cancels an in-flight AUTO run');
+console.log('Refresh parity: PASS');

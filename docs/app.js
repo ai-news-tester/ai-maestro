@@ -5,7 +5,7 @@
  */
 
 import { SunoDetector, StegoDetector, SpectralAnalyzer } from './modules/analyzer.js';
-import { NaSunoDSP } from './modules/dsp.js?v=8'; // shortcut: manual ?v= cache-bust, bump when dsp.js changes
+import { NaSunoDSP } from './modules/dsp.js?v=9'; // shortcut: manual ?v= cache-bust, bump when dsp.js changes
 import { mapAutoReport } from './modules/auto.js';
 import { SpectrumRenderer, buildAutoIssues } from './modules/spectrum.js';
 import { UIController } from './modules/ui.js';
@@ -48,6 +48,19 @@ function ensureAudioContext() {
     // Push initial DSP parameters from composite knobs
     if (registryDom) {
       applyCompositeKnobDSP();
+    }
+    // dsp is created after boot restore, so re-push AUTO chain params here.
+    if (autoParams) {
+      Object.assign(dsp.params, {
+        sibilance: autoParams.sibilance,
+        hfCutoff: autoParams.hfCutoff,
+        correlation: autoParams.correlation,
+        msBass: autoParams.msBass,
+        crestFactorDB: autoParams.crestFactorDB,
+        integratedLUFS: autoParams.integratedLUFS,
+        targetLUFS: autoParams.targetLUFS,
+        autoTrimDb: autoParams.autoTrimDb || 0,
+      });
     }
   }
   if (audioCtx.state === 'suspended') {
@@ -415,6 +428,7 @@ function persistCurrentSettings() {
     PersistenceManager.saveSettings({
       presetKey: currentPresetKey,
       compositeValues,
+      autoParams: autoParams ? { ...autoParams } : null,
       isBypassed: dsp ? dsp.isBypassed : false,
       timestamp: Date.now(),
     });
@@ -457,6 +471,7 @@ let autoReport = null;
 let autoParams = null;
 let autoIssues = [];
 let lastManualPreset = 'standardEvasion';
+let autoRunToken = 0;
 
 function autoTargetLUFS() {
   const sel = document.getElementById('autoTargetLUFS');
@@ -585,21 +600,26 @@ async function runAutoMaster() {
     if (statusEl) statusEl.textContent = 'Load or upload an audio file first.';
     return;
   }
+  const token = ++autoRunToken;
+  const buffer = currentBuffer;
   const btn = document.getElementById('autoBtn');
   if (btn) btn.disabled = true;
   try {
     setAutoProgress('Detect: analysing full track...');
     await new Promise((r) => setTimeout(r, 0));
-    const report = SpectralAnalyzer.analyzeFullTrack(currentBuffer);
+    if (token !== autoRunToken) return;
+    const report = SpectralAnalyzer.analyzeFullTrack(buffer);
 
     setAutoProgress('Clean: mapping cleanup stages...');
     await new Promise((r) => setTimeout(r, 0));
+    if (token !== autoRunToken) return;
     const auto = mapAutoReport(report, autoTargetLUFS());
 
     setAutoProgress('Master: calibrating loudness (full-track render)...');
     await new Promise((r) => setTimeout(r, 0));
     // Calibrate the trim from a real render so live playback matches export.
-    const rendered = await NaSunoDSP.renderChain(currentBuffer, auto.params);
+    const rendered = await NaSunoDSP.renderChain(buffer, auto.params);
+    if (token !== autoRunToken) return;
     const measured = NaSunoDSP.measureRender(rendered);
     auto.params.autoTrimDb = NaSunoDSP.correctionGainDb(measured.integratedLUFS, measured.truePeakDBTP, auto.params.targetLUFS);
 
@@ -613,7 +633,7 @@ async function runAutoMaster() {
     if (statusEl) statusEl.textContent = `AUTO failed: ${err.message}`;
     setAutoProgress('Failed');
   } finally {
-    if (btn) btn.disabled = false;
+    if (token === autoRunToken && btn) btn.disabled = false;
   }
 }
 
@@ -697,7 +717,12 @@ function setupExportWAV() {
           currentKnobValues[id] = knob.val;
         }
       }
-      if (autoParams) Object.assign(currentKnobValues, autoParams);
+      if (autoParams) {
+        // AUTO-only params only: registry knob values stay as the user left them.
+        for (const [k, v] of Object.entries(autoParams)) {
+          if (!registryDom || !registryDom.knobsMap[k]) currentKnobValues[k] = v;
+        }
+      }
 
       const isBypassed = !!(dsp?.isBypassed || currentTrackType === 'raw' || currentTrackType === 'custom_raw');
       const wavBlob = await NaSunoDSP.exportWAV(currentBuffer, currentKnobValues, isBypassed);
@@ -859,6 +884,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         const file = e.target.files[0];
         if (!file) return;
 
+        autoRunToken++; // cancel any in-flight AUTO calibration for the old track
         ensureAudioContext();
 
         const statusEl = document.getElementById('forensicStatus');
@@ -929,6 +955,19 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (k) k.setValue(val, false, k.fineStep()); // fine grid keeps saved Shift-tuned values
       }
       applyCompositeKnobDSP();
+      if (savedSettings.autoParams) {
+        autoParams = savedSettings.autoParams;
+        if (dsp) Object.assign(dsp.params, {
+          sibilance: autoParams.sibilance,
+          hfCutoff: autoParams.hfCutoff,
+          correlation: autoParams.correlation,
+          msBass: autoParams.msBass,
+          crestFactorDB: autoParams.crestFactorDB,
+          integratedLUFS: autoParams.integratedLUFS,
+          targetLUFS: autoParams.targetLUFS,
+          autoTrimDb: autoParams.autoTrimDb || 0,
+        });
+      }
       if (savedSettings.isBypassed) {
         if (ui) ui.setBypassState(true);
         if (dsp) dsp.setBypass(true);
