@@ -102,3 +102,54 @@ for (const token of order) {
 }
 assert.ok(chainBody.includes('-1'), 'limiter ceiling -1 dBTP present');
 console.log('Task 4: PASS');
+
+// ---- Task 5: AUTO mapper ----
+import { mapAutoReport, deshimmerStrengthFromShimmer, SIBILANCE_THRESHOLD } from './docs/modules/auto.js';
+assert.equal(deshimmerStrengthFromShimmer({ score: 0.8, confidence: 0.9 }), 80);
+assert.equal(deshimmerStrengthFromShimmer({ score: 0.8, confidence: 0.3 }), 0);
+assert.equal(deshimmerStrengthFromShimmer({ score: 0.1, confidence: 0.9 }), 0);
+assert.equal(deshimmerStrengthFromShimmer(null), 0);
+
+const cleanReport = {
+  integratedLUFS: -14, truePeakDBTP: -1, crestFactorDB: 14, clippingCount: 0,
+  carriers: [{ freqHz: 15500, prominenceDB: 1.2, confidence: 0 }], echoConfidence: 0,
+  spectralFlatness: 0.1, harshPeaks: [], shimmer: { score: 0.05, confidence: 0.9 },
+  sibilance: 0.05, stereoWidth: 0.8, correlation: 0.9, hfCutoff: 20000,
+};
+const clean = mapAutoReport(cleanReport);
+assert.equal(clean.params.deshimmer, 0, 'clean track deshimmer 0');
+assert.ok(clean.params.carrierErase <= 50, 'clean carrierErase <= 50');
+assert.equal(clean.presetKey, 'standardEvasion', 'clean preset');
+assert.equal(clean.params.deesser, 0, 'clean deesser off');
+assert.equal(clean.params.airShelf, 0, 'clean air off');
+
+const loudReport = {
+  integratedLUFS: -8, truePeakDBTP: 0.5, crestFactorDB: 4, clippingCount: 150,
+  carriers: [{ freqHz: 15500, prominenceDB: 6.0, confidence: 0.6 }], echoConfidence: 0.4,
+  spectralFlatness: 0.5, harshPeaks: [{ freqHz: 7000, prominenceDB: 13 }],
+  shimmer: { score: 0.6, confidence: 0.8 }, sibilance: 0.3, stereoWidth: 0.3, correlation: 0.2, hfCutoff: 16000,
+};
+const loud = mapAutoReport(loudReport);
+assert.ok(loud.params.outputGain < 0, 'loud report outputGain < 0');
+assert.equal(loud.limiterEngaged, true, 'loud limiter engaged');
+assert.ok(loud.params.deshimmer > 0, 'loud shimmer deshimmer > 0');
+assert.equal(loud.params.deesser, 1, 'high sibilance deesser on');
+assert.equal(loud.params.msBass, 1, 'low correlation msBass on');
+assert.equal(loud.params.airShelf, 1, 'hf cutoff 16k air on');
+assert.equal(loud.presetKey, 'deepClean', 'heavy track must keep deepClean (no standardEvasion veto)');
+assert.ok(typeof loud.reasons.carrierErase === 'string' && loud.reasons.carrierErase.length > 0, 'reasons present');
+
+// Threshold sides: named constant used everywhere
+const sib = (v) => mapAutoReport({ ...cleanReport, sibilance: v }).params.deesser;
+assert.equal(sib(SIBILANCE_THRESHOLD - 0.01), 0, 'below threshold off');
+assert.equal(sib(SIBILANCE_THRESHOLD + 0.01), 1, 'above threshold on');
+
+// Real-track-style shimmer (score 0.29 conf 0.25 was blocked by cap) must fire when confidence is real
+assert.ok(deshimmerStrengthFromShimmer({ score: 0.29, confidence: 0.6 }) > 0, 'moderate shimmer fires');
+
+// Clamps: extreme report values stay inside registry ranges
+const extreme = mapAutoReport({ ...loudReport, integratedLUFS: -40, truePeakDBTP: 6, carriers: [{ prominenceDB: 40 }], echoConfidence: 1 });
+assert.ok(extreme.params.outputGain <= 6 && extreme.params.outputGain >= -12, 'outputGain clamped');
+assert.ok(extreme.params.carrierErase <= 100 && extreme.params.stegoStrip <= 100, 'percent knobs clamped');
+
+console.log('Task 5: PASS');

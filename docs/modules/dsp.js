@@ -17,8 +17,7 @@
  * 14. Master Gain Staging & A/B Dry/Wet click-free bypass
  */
 
-// Shared with the AUTO mapper (auto.js, Task 5); defined here until auto.js lands, then dsp.js imports it from there.
-const SIBILANCE_THRESHOLD = 0.15;
+import { SIBILANCE_THRESHOLD } from './auto.js';
 
 export class NaSunoDSP {
   constructor() {
