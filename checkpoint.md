@@ -9,9 +9,14 @@ Ledger: `.superpowers/sdd/2026-11-16-auto-spotify/progress.md` (git-ignored; rul
 - 1a3e1ee — re-review fix pass: knob fineStep() clean decimals, restore keeps Shift-tuned values, stale doc lines removed
 - f207cfe — Task 1 complete: K-weighted LUFS + LRA + 4x polyphase true-peak meter in analyzer.js; auto-repro.mjs reference tests PASS (sine -6.06 LUFS / -6.01 dBTP, silence -Inf, inter-sample overs caught)
 
+- 38042ac — Task 2 complete: analyzeFullTrack (stereo metrics, silence ranges, shimmer score)
+- 28bfb3a — Task 3 complete: deshimmer knob (15th) + live 10 kHz shelf + effective boosts
+- 3940bc4 — Task 4 complete: shared buildMasterChain used by init/connect/exportWAV; hand-copied offline chain deleted; LFO parity live=export
+
 ## Next
-Task 2 of plan: analyzeFullTrack(buffer) — full-track stereo analysis incl. measureShimmer (ledgered ruling: implemented here since the deshimmer plan file is absent).
-Then Tasks 3–7 (deshimmer knob+stage, shared buildMasterChain, auto.js mapper, AUTO UI, real-track verification).
+Task 5 of plan: AUTO mapper docs/modules/auto.js — mapAutoReport + deshimmerStrengthFromShimmer.
+Port from .claude/worktrees/auto-spotify/docs/modules/auto.js but fix its known bugs first (see worktree docs/AUTO-SPOTIFY-FULL-PLAN.md section 10): preset override vetoing deepClean, shimmer confidence cap making deshimmer never fire, spectralFlatness missing from report.
+Then Task 6 (AUTO UI + spectrum overlay/issues/sliders) and Task 7 (real-track verification on MustaJaa-v2.wav + demo_original.wav).
 
 ## Resume instructions
 1. `git log --oneline -5` and read the ledger's `Task N: complete` lines — trust them over memory.
