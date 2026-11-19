@@ -30,3 +30,55 @@ console.log('inter-sample truePeak:', tp, '(sample peak:', SpectralAnalyzer.anal
 assert.ok(tp > -1.0, `true peak ${tp} must see the ~0 dBTP analog peak`);
 
 console.log('Task 1: PASS');
+
+// ---- Task 2: full-track stereo analysis ----
+function fakeBuffer(channels, sr) {
+  return {
+    numberOfChannels: channels.length,
+    length: channels[0].length,
+    sampleRate: sr,
+    duration: channels[0].length / sr,
+    getChannelData: (c) => channels[c],
+  };
+}
+const SR = 44100, N = SR * 4; // 4 s
+const L = new Float32Array(N), R = new Float32Array(N);
+const silenceLen = Math.round(0.5 * SR);
+for (let i = silenceLen; i < N; i++) {
+  L[i] = 0.5 * Math.sin((2 * Math.PI * 440 * i) / SR);
+  R[i] = 0.25 * Math.sin((2 * Math.PI * 440 * i) / SR);
+}
+for (let i = SR; i < SR + 5; i++) L[i] = 1.0; // 5 clipped samples at 1.0 s
+const r = SpectralAnalyzer.analyzeFullTrack(fakeBuffer([L, R], SR));
+console.log('full-track: clip', r.clippingCount, 'corr', r.correlation, 'silence', JSON.stringify(r.silenceRanges), 'shimmer', r.shimmer);
+assert.equal(r.clippingCount, 5, 'clippingCount must be 5');
+assert.ok(r.correlation > 0.9, `correlation ${r.correlation} must be > 0.9`);
+assert.equal(r.silenceRanges[0].start, 0, 'first silence range starts at 0');
+assert.ok(typeof r.shimmer.score === 'number' && !Number.isNaN(r.shimmer.score) && r.shimmer.score >= 0 && r.shimmer.score <= 1, 'shimmer score 0-1');
+assert.equal(r.duration, 4, 'duration');
+assert.equal(r.sampleRate, SR, 'sampleRate');
+assert.ok(Number.isFinite(r.integratedLUFS), 'integrated LUFS finite for non-silent track');
+
+// silence / short buffer: no NaN anywhere, shimmer 0
+const shortR = SpectralAnalyzer.analyzeFullTrack(fakeBuffer([new Float32Array(1024), new Float32Array(1024)], SR));
+assert.equal(shortR.shimmer.score, 0, 'short buffer shimmer 0');
+assert.equal(shortR.shimmer.confidence, 0, 'short buffer confidence 0');
+assert.ok(!Number.isNaN(shortR.crestFactorDB), 'short buffer crest not NaN');
+const silentR = SpectralAnalyzer.analyzeFullTrack(fakeBuffer([new Float32Array(N), new Float32Array(N)], SR));
+assert.equal(silentR.shimmer.score, 0, 'silent shimmer 0');
+assert.ok(silentR.silenceRanges.length >= 1 && silentR.silenceRanges[0].start === 0, 'all-silence range');
+
+// synthetic shimmer signal must score higher than a pure sine
+const shim = new Float32Array(SR * 2);
+for (let i = 0; i < shim.length; i++) {
+  shim[i] = 0.3 * Math.sin((2 * Math.PI * 9000 * i) / SR) * (0.5 + 0.5 * Math.sin((2 * Math.PI * 7 * i) / SR))
+    + 0.1 * (Math.random() * 2 - 1) * (i % 997 < 500 ? 1 : 0.2); // watery HF bursts
+}
+const shimScore = SpectralAnalyzer.measureShimmer(shim, SR);
+const pureSine = new Float32Array(SR * 2);
+for (let i = 0; i < pureSine.length; i++) pureSine[i] = 0.3 * Math.sin((2 * Math.PI * 440 * i) / SR);
+const sineScore = SpectralAnalyzer.measureShimmer(pureSine, SR);
+console.log('shimmer synthetic:', shimScore.score, 'vs pure sine:', sineScore.score);
+assert.ok(shimScore.score > sineScore.score, 'shimmer signal must score above pure sine');
+
+console.log('Task 2: PASS');

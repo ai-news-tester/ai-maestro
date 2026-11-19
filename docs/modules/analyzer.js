@@ -576,4 +576,63 @@ export class SpectralAnalyzer {
     }
     return peak > 0 ? 20 * Math.log10(peak) : -Infinity;
   }
+
+  static measureShimmer(samples, sr) {
+    if (!samples || samples.length < 2048) return { score: 0, confidence: 0, hfFlatness: 0, hfVariance: 0, resonanceProminence: 0 };
+    const { magnitudes } = AudioMath.stft(samples, 2048, 1024);
+    if (!magnitudes.length) return { score: 0, confidence: 0, hfFlatness: 0, hfVariance: 0, resonanceProminence: 0 };
+    const hfLo = Math.floor(8000 / (sr / 2048));
+    let flatSum = 0, hfTotal = 0, allTotal = 0;
+    const hfPerFrame = [];
+    for (const frame of magnitudes) {
+      flatSum += AudioMath.spectralFlatness(frame.slice(hfLo));
+      let e = 0, ae = 0;
+      for (let k = hfLo; k < frame.length; k++) e += frame[k] * frame[k];
+      for (const v of frame) ae += v * v;
+      hfPerFrame.push(e); hfTotal += e; allTotal += ae;
+    }
+    const hfFlatness = flatSum / magnitudes.length;
+    const mean = hfPerFrame.reduce((a, b) => a + b, 0) / hfPerFrame.length || 0;
+    const variance = mean > 0 ? Math.sqrt(hfPerFrame.reduce((a, b) => a + (b - mean) ** 2, 0) / hfPerFrame.length) / mean : 0;
+    const hfRatio = allTotal > 0 ? hfTotal / allTotal : 0;
+    if (hfRatio < 0.01) return { score: 0, confidence: 0.5, hfFlatness: +hfFlatness.toFixed(4), hfVariance: +variance.toFixed(4), resonanceProminence: 0 };
+    const score = Math.max(0, Math.min(1, 0.5 * hfFlatness + 0.5 * Math.min(1, variance)));
+    return { score: +score.toFixed(4), confidence: +Math.min(1, magnitudes.length / 20).toFixed(3), hfFlatness: +hfFlatness.toFixed(4), hfVariance: +variance.toFixed(4), resonanceProminence: 0 };
+  }
+
+  static analyzeFullTrack(buffer) {
+    const sr = buffer.sampleRate, len = buffer.length;
+    const left = buffer.getChannelData(0);
+    const right = buffer.numberOfChannels > 1 ? buffer.getChannelData(1) : left;
+    const duration = buffer.duration || len / sr;
+    if (len < 2048) return { integratedLUFS: -Infinity, loudnessRange: 0, truePeakDBTP: -Infinity, peakDBFS: -Infinity, rmsDBFS: -Infinity, crestFactorDB: 0, clippingCount: 0, dcOffsetL: 0, dcOffsetR: 0, silenceRanges: [{ start: 0, end: +duration.toFixed(3) }], fadeIn: 0, fadeOut: 0, stereoWidth: 0, correlation: 0, monoLowsDB: -Infinity, spectralTilt: 0, harshPeaks: [], sibilance: 0, hfCutoff: sr / 2, carriers: [], echoConfidence: 0, shimmer: { score: 0, confidence: 0 }, sampleRate: sr, duration };
+    let clippingCount = 0, sumL = 0, sumR = 0;
+    for (let i = 0; i < len; i++) { if (Math.abs(left[i]) >= 0.999) clippingCount++; if (right !== left && Math.abs(right[i]) >= 0.999) clippingCount++; sumL += left[i]; sumR += right[i]; }
+    let cov = 0, vl = 0, vr = 0, side = 0, mid = 0;
+    const ml = sumL / len, mr = sumR / len;
+    for (let i = 0; i < len; i++) { const dl = left[i] - ml, dr = right[i] - mr; cov += dl * dr; vl += dl * dl; vr += dr * dr; const m = (left[i] + right[i]) / 2, s = (left[i] - right[i]) / 2; mid += m * m; side += s * s; }
+    const correlation = vl > 0 && vr > 0 ? cov / Math.sqrt(vl * vr) : 0;
+    const stereoWidth = mid > 0 ? Math.sqrt(side / mid) : 0;
+    const win = Math.max(1, Math.round(sr * 0.05)), ranges = [];
+    let start = -1;
+    for (let o = 0; o < len; o += win) { let e = 0; const ee = Math.min(len, o + win); for (let i = o; i < ee; i++) e += left[i] * left[i] + right[i] * right[i]; const rms = Math.sqrt(e / Math.max(1, (ee - o) * 2)); if (rms < 0.001) { if (start < 0) start = o; } else { if (start >= 0 && o - start >= sr * 0.2) ranges.push({ start: +(start / sr).toFixed(3), end: +(o / sr).toFixed(3) }); start = -1; } }
+    if (start >= 0 && len - start >= sr * 0.2) ranges.push({ start: +(start / sr).toFixed(3), end: +(len / sr).toFixed(3) });
+    const mono = new Float32Array(len);
+    for (let i = 0; i < len; i++) mono[i] = (left[i] + right[i]) * 0.5;
+    const base = this.analyze(mono, sr);
+    const loud = this.measureLoudness(left, right, sr);
+    const nfft = 2048, half = (nfft >> 1) + 1, avg = new Float64Array(half), winFn = AudioMath.hannWindow(nfft);
+    const nw = Math.min(8, Math.floor(len / nfft));
+    for (let w = 0; w < nw; w++) { const off = nw > 1 ? Math.floor((w * (len - nfft)) / (nw - 1)) : 0; const mag = AudioMath.magnitudeSpectrum(mono.slice(off, off + nfft), winFn); for (let k = 0; k < half; k++) avg[k] += mag[k] / nw; }
+    const bandE = (lo, hi) => { const a = Math.max(0, Math.floor(lo / (sr / nfft))), b = Math.min(half - 1, Math.ceil(hi / (sr / nfft))); let e = 0; for (let k = a; k <= b; k++) e += avg[k] * avg[k]; return e; };
+    const totalE = bandE(20, 20000) || 1e-20;
+    let hfCutoff = sr / 2, peakE = 0;
+    for (const v of avg) if (v > peakE) peakE = v;
+    for (let k = half - 1; k >= 0; k--) { if (avg[k] > peakE * 0.01) { hfCutoff = Math.round(k * (sr / nfft)); break; } }
+    let suno = { carriers: [] }, stego = { confidence: 0 };
+    try { suno = SunoDetector.analyze(mono, sr); } catch {}
+    try { stego = StegoDetector.analyze(mono, sr); } catch {}
+    const lastR = ranges[ranges.length - 1];
+    return { integratedLUFS: loud.integratedLUFS, loudnessRange: loud.loudnessRange, truePeakDBTP: loud.truePeakDBTP, peakDBFS: base.peakDBFS, rmsDBFS: base.rmsDBFS, crestFactorDB: base.crestFactorDB, clippingCount, dcOffsetL: +(sumL / len).toFixed(6), dcOffsetR: +(sumR / len).toFixed(6), silenceRanges: ranges, fadeIn: ranges.length && ranges[0].start === 0 ? ranges[0].end : 0, fadeOut: lastR && Math.abs(lastR.end - duration) < 0.1 ? +(duration - lastR.start).toFixed(3) : 0, stereoWidth: +stereoWidth.toFixed(4), correlation: +correlation.toFixed(4), monoLowsDB: +(10 * Math.log10(bandE(20, 120) / totalE + 1e-12)).toFixed(2), spectralTilt: +(10 * Math.log10((bandE(8000, 16000) + 1e-12) / (bandE(100, 1000) + 1e-12))).toFixed(2), harshPeaks: [], sibilance: +(bandE(5000, 8000) / totalE).toFixed(4), hfCutoff, carriers: suno.carriers || [], echoConfidence: stego.confidence || 0, shimmer: this.measureShimmer(mono, sr), sampleRate: sr, duration };
+  }
 }
