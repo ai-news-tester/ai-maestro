@@ -17,6 +17,9 @@
  * 14. Master Gain Staging & A/B Dry/Wet click-free bypass
  */
 
+// Shared with the AUTO mapper (auto.js, Task 5); defined here until auto.js lands, then dsp.js imports it from there.
+const SIBILANCE_THRESHOLD = 0.15;
+
 export class NaSunoDSP {
   constructor() {
     this.ctx = null;
@@ -41,6 +44,14 @@ export class NaSunoDSP {
 
     // Deshimmer (HF shelf at 10 kHz)
     this.deshimmerShelf = null;
+
+    // AUTO mastering stages (built by buildMasterChain)
+    this.deesser = null;
+    this.airShelf = null;
+    this.monoLows = null;
+    this.loudnessGain = null;
+    this.truePeakLimiter = null;
+    this.chain = null;
 
     // 5. Spectral Blend (Mel-domain resonant peak smoother)
     this.blendFilter1 = null;
@@ -136,6 +147,86 @@ export class NaSunoDSP {
     }
     return curve;
   }
+
+  /**
+   * Build the shared cleanup + mastering chain used by live playback and export.
+   * Nodes are created on (or reused from) `nodes`; for the live instance pass `this`.
+   * @param {AudioContext} ctx
+   * @param {Object} params - composite knobs plus AUTO pass-throughs (sibilance, hfCutoff, correlation, msBass, crestFactorDB, integratedLUFS, targetLUFS)
+   * @param {Object} nodes - node cache (live instance or {})
+   * @returns {{input: AudioNode, output: AudioNode, nodes: Object}}
+   */
+  static buildMasterChain(ctx, params = {}, nodes = {}) {
+    const now = ctx.currentTime || 0;
+    const set = (param, v) => { if (param.setValueAtTime) param.setValueAtTime(v, now); else param.value = v; };
+    const makeFilter = (key, type, freq, q = 0.7, gain = 0) => {
+      const n = nodes[key] || ctx.createBiquadFilter();
+      n.type = type;
+      set(n.frequency, freq); set(n.Q, q); set(n.gain, gain);
+      nodes[key] = n;
+      return n;
+    };
+    const defaults = { carrierErase: 50, strideRemove: 35, stegoStrip: 45, neuralScrub: 45, spectralBlend: 40, deshimmer: 0, phaseScatter: 40, statNormalize: 40, hashBreak: 30, roomInject: 35, textureInject: 35, bandwidthHeal: 0.25, dynamicsNatural: 40, qualityGate: 3, outputGain: 0 };
+    const p = { ...defaults, ...params };
+    const sNorm = p.strideRemove / 100, cNorm = p.carrierErase / 100;
+    const stride1 = makeFilter('stride1', 'peaking', 172.3, 6, -10 * sNorm);
+    const stride2 = makeFilter('stride2', 'peaking', 344.6, 7, -7 * sNorm);
+    const stegoComb = makeFilter('stegoComb', 'peaking', 3800, 3, -8 * (p.stegoStrip / 100));
+    const notch1 = makeFilter('notch1', 'notch', 15500, 28 - 25.5 * cNorm);
+    const notch2 = makeFilter('notch2', 'notch', 17500, 24 - 21.5 * cNorm);
+    const notch3 = makeFilter('notch3', 'notch', 19500, 20 - 18 * cNorm);
+    const effN = Math.min(100, p.neuralScrub + 0.20 * p.deshimmer);
+    const effB = Math.min(100, p.spectralBlend + 0.15 * p.deshimmer);
+    const neuralFilter = makeFilter('neuralFilter', 'highshelf', 19000 - 8000 * (effN / 100), 0.7, -12 * (effN / 100));
+    const deshimmerShelf = makeFilter('deshimmerShelf', 'highshelf', 10000, 0.7, -0.06 * p.deshimmer);
+    const deesser = makeFilter('deesser', 'peaking', 6500, 2, p.sibilance > SIBILANCE_THRESHOLD ? -6 : 0);
+    const airShelfNode = makeFilter('airShelf', 'highshelf', 16000, 0.7, p.hfCutoff > 0 && p.hfCutoff <= 16000 ? 2 : 0);
+    const blendFilter1 = makeFilter('blendFilter1', 'peaking', 4200, 2, -6 * (effB / 100));
+    const blendFilter2 = makeFilter('blendFilter2', 'peaking', 7600, 2.5, -7 * (effB / 100));
+    const monoLows = makeFilter('monoLows', 'lowshelf', 120, 0.7, p.correlation < 0.3 || p.msBass === 1 ? -3 : 0);
+    const allpass1 = makeFilter('allpass1', 'allpass', 850, 0.5 + 7.5 * (p.phaseScatter / 100));
+    const allpass2 = makeFilter('allpass2', 'allpass', 2400, 0.8 + 8 * (p.phaseScatter / 100));
+    const allpass3 = makeFilter('allpass3', 'allpass', 6800, 1 + 8.5 * (p.phaseScatter / 100));
+    const statShaper = nodes.statShaper || ctx.createWaveShaper(); nodes.statShaper = statShaper;
+    statShaper.curve = NaSunoDSP.makeStatCurve(p.statNormalize / 100); statShaper.oversample = '2x';
+    const hashDelay = nodes.hashDelay || ctx.createDelay(0.05); nodes.hashDelay = hashDelay;
+    set(hashDelay.delayTime, 0.003);
+    const hashLfo = nodes.hashLfo || ctx.createOscillator(); nodes.hashLfo = hashLfo;
+    hashLfo.type = 'sine'; set(hashLfo.frequency, 0.25 + 0.55 * (p.hashBreak / 100));
+    const hashLfoGain = nodes.hashLfoGain || ctx.createGain(); nodes.hashLfoGain = hashLfoGain;
+    set(hashLfoGain.gain, 0.0001 + 0.0017 * (p.hashBreak / 100));
+    hashLfo.connect(hashLfoGain); hashLfoGain.connect(hashDelay.delayTime);
+    try { hashLfo.start(now); } catch (_) {}
+    const roomSend = nodes.roomSend || ctx.createGain(); nodes.roomSend = roomSend; set(roomSend.gain, 1.0);
+    const roomDelay1 = nodes.roomDelay1 || ctx.createDelay(0.1); nodes.roomDelay1 = roomDelay1; set(roomDelay1.delayTime, 0.016);
+    const roomDelay2 = nodes.roomDelay2 || ctx.createDelay(0.1); nodes.roomDelay2 = roomDelay2; set(roomDelay2.delayTime, 0.031);
+    const roomFilter = makeFilter('roomFilter', 'lowpass', 4200);
+    const roomReturn = nodes.roomReturn || ctx.createGain(); nodes.roomReturn = roomReturn; set(roomReturn.gain, 0.25 * (p.roomInject / 100));
+    const roomMixBus = nodes.roomMixBus || ctx.createGain(); nodes.roomMixBus = roomMixBus; set(roomMixBus.gain, 1.0);
+    const textureShaper = nodes.textureShaper || ctx.createWaveShaper(); nodes.textureShaper = textureShaper;
+    textureShaper.curve = NaSunoDSP.makeTextureCurve(p.textureInject / 100); textureShaper.oversample = '2x';
+    const shelf = makeFilter('shelf', 'highshelf', 12000, 0.7, p.bandwidthHeal);
+    const glueComp = nodes.dynamicsComp || ctx.createDynamicsCompressor(); nodes.dynamicsComp = glueComp;
+    const crest = Number.isFinite(p.crestFactorDB) ? p.crestFactorDB : 12;
+    const crestThresh = -13.2 - Math.max(0, (crest - 14) * 0.5);
+    const dynThresh = Math.min(crestThresh, -6 - 18 * (p.dynamicsNatural / 100));
+    set(glueComp.threshold, dynThresh); set(glueComp.knee, 10); set(glueComp.ratio, 1.5 + 2.5 * (p.dynamicsNatural / 100)); set(glueComp.attack, 0.025); set(glueComp.release, 0.14);
+    const qualityLimiter = nodes.qualityLimiter || ctx.createDynamicsCompressor(); nodes.qualityLimiter = qualityLimiter;
+    set(qualityLimiter.threshold, -0.2 - 0.45 * Math.max(1, Math.min(6, p.qualityGate))); set(qualityLimiter.knee, 0); set(qualityLimiter.ratio, 20); set(qualityLimiter.attack, 0.003); set(qualityLimiter.release, 0.05);
+    const loudnessGain = nodes.loudnessGain || ctx.createGain(); nodes.loudnessGain = loudnessGain;
+    const targetLUFS = Number.isFinite(p.targetLUFS) ? p.targetLUFS : -14;
+    const loudnessDb = Number.isFinite(p.integratedLUFS) ? Math.max(-12, Math.min(12, targetLUFS - p.integratedLUFS - (p.outputGain || 0))) : 0;
+    set(loudnessGain.gain, Math.pow(10, loudnessDb / 20));
+    const tpLimiter = nodes.truePeakLimiter || ctx.createDynamicsCompressor(); nodes.truePeakLimiter = tpLimiter;
+    set(tpLimiter.threshold, -1); set(tpLimiter.knee, 0); set(tpLimiter.ratio, 20); set(tpLimiter.attack, 0.001); set(tpLimiter.release, 0.05);
+    const outGain = nodes.outGain || ctx.createGain(); nodes.outGain = outGain; set(outGain.gain, Math.pow(10, p.outputGain / 20));
+    const chain = [stride1, stride2, stegoComb, notch1, notch2, notch3, neuralFilter, deshimmerShelf, deesser, airShelfNode, blendFilter1, blendFilter2, allpass1, allpass2, allpass3, statShaper, hashDelay];
+    for (let i = 0; i < chain.length - 1; i++) chain[i].connect(chain[i + 1]);
+    hashDelay.connect(roomMixBus); hashDelay.connect(roomSend); roomSend.connect(roomDelay1); roomDelay1.connect(roomDelay2); roomDelay2.connect(roomFilter); roomFilter.connect(roomReturn); roomReturn.connect(roomMixBus);
+    roomMixBus.connect(textureShaper); textureShaper.connect(shelf); shelf.connect(monoLows); monoLows.connect(glueComp); glueComp.connect(loudnessGain); loudnessGain.connect(qualityLimiter); qualityLimiter.connect(tpLimiter);
+    return { input: stride1, output: tpLimiter, nodes };
+  }
+  // MASTER_CHAIN_END
 
   /**
    * Initialize all 14 DSP nodes in the provided AudioContext.
@@ -310,6 +401,9 @@ export class NaSunoDSP {
     this.analyser = ctx.createAnalyser();
     this.analyser.fftSize = 2048;
     this.analyser.smoothingTimeConstant = 0.8;
+
+    // Build the shared mastering chain on the live nodes (connect() rebuilds it with current params).
+    this.chain = NaSunoDSP.buildMasterChain(ctx, this.params, this);
   }
 
   /**
@@ -320,76 +414,13 @@ export class NaSunoDSP {
   connect(sourceNode, destinationNode) {
     this.source = sourceNode;
     this.destination = destinationNode;
-
-    // Route raw pre-DSP signal to rawAnalyser for real-time visual comparison
+    this.chain = NaSunoDSP.buildMasterChain(this.ctx, this.params, this);
     sourceNode.connect(this.rawAnalyser);
-
-    // --- WET CHAIN ---
-    // Source -> Stride 1 -> Stride 2
-    sourceNode.connect(this.stride1);
-    this.stride1.connect(this.stride2);
-
-    // -> Stego Comb
-    this.stride2.connect(this.stegoComb);
-
-    // -> Ultrasonic Carrier Notches (15.5k -> 17.5k -> 19.5k)
-    this.stegoComb.connect(this.notch1);
-    this.notch1.connect(this.notch2);
-    this.notch2.connect(this.notch3);
-
-    // -> Neural Scrub Filter
-    this.notch3.connect(this.neuralFilter);
-
-    // -> Deshimmer Shelf
-    this.neuralFilter.connect(this.deshimmerShelf);
-    this.deshimmerShelf.connect(this.blendFilter1);
-
-    // -> Spectral Blend Peaking Filters
-    this.blendFilter1.connect(this.blendFilter2);
-
-    // -> Phase Scatter (All-Pass Cascade)
-    this.blendFilter2.connect(this.allpass1);
-    this.allpass1.connect(this.allpass2);
-    this.allpass2.connect(this.allpass3);
-
-    // -> Stat Normalize (Polynomial WaveShaper)
-    this.allpass3.connect(this.statShaper);
-
-    // -> Hash Break (Micro-warp Delay)
-    this.statShaper.connect(this.hashDelay);
-
-    // -> Room Inject parallel branch:
-    //    Direct path to roomMixBus
-    this.hashDelay.connect(this.roomMixBus);
-    //    Parallel reflection path:
-    this.hashDelay.connect(this.roomSend);
-    this.roomSend.connect(this.roomDelay1);
-    this.roomDelay1.connect(this.roomDelay2);
-    this.roomDelay2.connect(this.roomFilter);
-    this.roomFilter.connect(this.roomReturn);
-    this.roomReturn.connect(this.roomMixBus);
-
-    // -> Texture Inject (Harmonic Saturation)
-    this.roomMixBus.connect(this.textureShaper);
-
-    // -> Bandwidth Heal (Air-band High Shelf)
-    this.textureShaper.connect(this.shelf);
-
-    // -> Dynamics Naturalizer Compressor
-    this.shelf.connect(this.dynamicsComp);
-
-    // -> Quality Gate Brickwall Limiter
-    this.dynamicsComp.connect(this.qualityLimiter);
-
-    // -> Wet Gain -> Master Output Gain
-    this.qualityLimiter.connect(this.wetGain);
+    sourceNode.connect(this.chain.input);
+    this.chain.output.connect(this.wetGain);
     this.wetGain.connect(this.outGain);
-
-    // --- DRY CHAIN (for click-free A/B bypass) ---
     sourceNode.connect(this.dryGain);
     this.dryGain.connect(this.outGain);
-
-    // Master Output -> Analyser -> Destination Speakers
     this.outGain.connect(this.analyser);
     this.analyser.connect(destinationNode);
   }
@@ -595,6 +626,12 @@ export class NaSunoDSP {
       if (this.shelf) this.shelf.disconnect();
       if (this.dynamicsComp) this.dynamicsComp.disconnect();
       if (this.qualityLimiter) this.qualityLimiter.disconnect();
+      if (this.deshimmerShelf) this.deshimmerShelf.disconnect();
+      if (this.deesser) this.deesser.disconnect();
+      if (this.airShelf) this.airShelf.disconnect();
+      if (this.monoLows) this.monoLows.disconnect();
+      if (this.loudnessGain) this.loudnessGain.disconnect();
+      if (this.truePeakLimiter) this.truePeakLimiter.disconnect();
       if (this.wetGain) this.wetGain.disconnect();
       if (this.dryGain) this.dryGain.disconnect();
       if (this.outGain) this.outGain.disconnect();
@@ -616,193 +653,14 @@ export class NaSunoDSP {
     if (isBypassed || params.bypass) {
       return this.encodeWAV(audioBuffer);
     }
-
-    const numChannels = audioBuffer.numberOfChannels;
-    const length = audioBuffer.length;
-    const sampleRate = audioBuffer.sampleRate;
-
-    const offlineCtx = new OfflineAudioContext(numChannels, length, sampleRate);
+    const offlineCtx = new OfflineAudioContext(audioBuffer.numberOfChannels, audioBuffer.length, audioBuffer.sampleRate);
     const source = offlineCtx.createBufferSource();
     source.buffer = audioBuffer;
-
-    // 1. Stride Notches (Safe cuts: -10 dB on 172.3 Hz & -7 dB on 344.6 Hz)
-    const sNorm = (params.strideRemove ?? 35) / 100;
-    const s1 = offlineCtx.createBiquadFilter();
-    s1.type = 'peaking';
-    s1.frequency.value = 172.3;
-    s1.Q.value = 6.0;
-    s1.gain.value = 0.0 - 10.0 * sNorm;
-
-    const s2 = offlineCtx.createBiquadFilter();
-    s2.type = 'peaking';
-    s2.frequency.value = 344.6;
-    s2.Q.value = 7.0;
-    s2.gain.value = 0.0 - 7.0 * sNorm;
-
-    // 2. Stego Comb (De-echo comb cut up to -8 dB)
-    const stegoNorm = (params.stegoStrip ?? 45) / 100;
-    const stegoComb = offlineCtx.createBiquadFilter();
-    stegoComb.type = 'peaking';
-    stegoComb.frequency.value = 3800;
-    stegoComb.Q.value = 3.0;
-    stegoComb.gain.value = 0.0 - 8.0 * stegoNorm;
-
-    // 3. Ultrasonic Carriers (Q widens from 28 down to 2.2 for broad notch sweeps)
-    const cNorm = (params.carrierErase ?? 50) / 100;
-    const n1 = offlineCtx.createBiquadFilter();
-    n1.type = 'notch';
-    n1.frequency.value = 15500;
-    n1.Q.value = 28.0 - 25.5 * cNorm;
-
-    const n2 = offlineCtx.createBiquadFilter();
-    n2.type = 'notch';
-    n2.frequency.value = 17500;
-    n2.Q.value = 24.0 - 21.5 * cNorm;
-
-    const n3 = offlineCtx.createBiquadFilter();
-    n3.type = 'notch';
-    n3.frequency.value = 19500;
-    n3.Q.value = 20.0 - 18.0 * cNorm;
-
-    // 4. Neural Scrub (Sweeps 19 kHz down to 11 kHz, cut up to -12 dB)
-    const neuralNorm = (params.neuralScrub ?? 45) / 100;
-    const neuralFilter = offlineCtx.createBiquadFilter();
-    neuralFilter.type = 'highshelf';
-    neuralFilter.frequency.value = 19000 - 8000 * neuralNorm;
-    neuralFilter.gain.value = 0.0 - 12.0 * neuralNorm;
-
-    // 5. Spectral Blend (Resonant peak attenuation up to -6 dB and -7 dB)
-    const blendNorm = (params.spectralBlend ?? 40) / 100;
-    const b1 = offlineCtx.createBiquadFilter();
-    b1.type = 'peaking';
-    b1.frequency.value = 4200;
-    b1.Q.value = 2.0;
-    b1.gain.value = 0.0 - 6.0 * blendNorm;
-
-    const b2 = offlineCtx.createBiquadFilter();
-    b2.type = 'peaking';
-    b2.frequency.value = 7600;
-    b2.Q.value = 2.5;
-    b2.gain.value = 0.0 - 7.0 * blendNorm;
-
-    // 6. Phase Scatter All-Pass Cascade (Q up to 8.5 for intense phase dispersion)
-    const pNorm = (params.phaseScatter ?? 40) / 100;
-    const ap1 = offlineCtx.createBiquadFilter();
-    ap1.type = 'allpass';
-    ap1.frequency.value = 850;
-    ap1.Q.value = 0.5 + 7.5 * pNorm;
-
-    const ap2 = offlineCtx.createBiquadFilter();
-    ap2.type = 'allpass';
-    ap2.frequency.value = 2400;
-    ap2.Q.value = 0.8 + 8.0 * pNorm;
-
-    const ap3 = offlineCtx.createBiquadFilter();
-    ap3.type = 'allpass';
-    ap3.frequency.value = 6800;
-    ap3.Q.value = 1.0 + 8.5 * pNorm;
-
-    // 7. Stat Normalize WaveShaper (Saturation with unity peak normalization)
-    const statNorm = (params.statNormalize ?? 40) / 100;
-    const statShaper = offlineCtx.createWaveShaper();
-    statShaper.curve = NaSunoDSP.makeStatCurve(statNorm);
-
-    // 8. Hash Break (Micro-warp delay + LFO, same as live chain: 0.003s base, 0.25-0.8 Hz, 0.0001-0.0018s depth)
-    const hashNorm = (params.hashBreak ?? 30) / 100;
-    const hashDelay = offlineCtx.createDelay(0.05);
-    hashDelay.delayTime.value = 0.003;
-    const hashLfo = offlineCtx.createOscillator();
-    hashLfo.type = 'sine';
-    hashLfo.frequency.value = 0.25 + 0.55 * hashNorm;
-    const hashLfoGain = offlineCtx.createGain();
-    hashLfoGain.gain.value = 0.0001 + 0.0017 * hashNorm;
-    hashLfo.connect(hashLfoGain);
-    hashLfoGain.connect(hashDelay.delayTime);
-    hashLfo.start(0);
-
-    // 9. Room Inject (Early reflection acoustic network - subtle room ambiance)
-    const rNorm = (params.roomInject ?? 35) / 100;
-    const roomSend = offlineCtx.createGain();
-    roomSend.gain.value = 1.0;
-    const roomDelay1 = offlineCtx.createDelay(0.1);
-    roomDelay1.delayTime.value = 0.016;
-    const roomDelay2 = offlineCtx.createDelay(0.1);
-    roomDelay2.delayTime.value = 0.031;
-    const roomFilter = offlineCtx.createBiquadFilter();
-    roomFilter.type = 'lowpass';
-    roomFilter.frequency.value = 4200;
-    const roomReturn = offlineCtx.createGain();
-    roomReturn.gain.value = 0.0 + 0.25 * rNorm;
-    const roomMixBus = offlineCtx.createGain();
-    roomMixBus.gain.value = 1.0;
-
-    // 10. Texture Inject WaveShaper (Warm tape/tube drive)
-    const texNorm = (params.textureInject ?? 35) / 100;
-    const textureShaper = offlineCtx.createWaveShaper();
-    textureShaper.curve = NaSunoDSP.makeTextureCurve(texNorm);
-
-    // 11. Bandwidth Heal Shelf (Air band gain at 12 kHz)
-    const shelf = offlineCtx.createBiquadFilter();
-    shelf.type = 'highshelf';
-    shelf.frequency.value = 12000;
-    shelf.gain.value = params.bandwidthHeal ?? 0.25;
-
-    // 12. Dynamics Compressor (Threshold down to -24 dB, ratio up to 4:1)
-    const dynNorm = (params.dynamicsNatural ?? 40) / 100;
-    const dynComp = offlineCtx.createDynamicsCompressor();
-    dynComp.threshold.value = -6.0 - 18.0 * dynNorm;
-    dynComp.ratio.value = 1.5 + 2.5 * dynNorm;
-    dynComp.attack.value = 0.025;
-    dynComp.release.value = 0.14;
-
-    // 13. Quality Limiter (Ceiling down to -2.90 dB)
-    const qLvl = Math.max(1, Math.min(6, params.qualityGate ?? 3));
-    const limiter = offlineCtx.createDynamicsCompressor();
-    limiter.threshold.value = -0.2 - 0.45 * qLvl;
-    limiter.ratio.value = 20.0;
-    limiter.attack.value = 0.003;
-    limiter.release.value = 0.05;
-
-    // 14. Master Gain
-    const outGain = offlineCtx.createGain();
-    const gainLinear = Math.pow(10, (params.outputGain ?? 0.0) / 20);
-    outGain.gain.value = gainLinear;
-
-    // Wire complete 14-node cascade in OfflineContext
-    source.connect(s1);
-    s1.connect(s2);
-    s2.connect(stegoComb);
-    stegoComb.connect(n1);
-    n1.connect(n2);
-    n2.connect(n3);
-    n3.connect(neuralFilter);
-    neuralFilter.connect(b1);
-    b1.connect(b2);
-    b2.connect(ap1);
-    ap1.connect(ap2);
-    ap2.connect(ap3);
-    ap3.connect(statShaper);
-    statShaper.connect(hashDelay);
-
-    // Room Inject parallel branch
-    hashDelay.connect(roomMixBus);
-    hashDelay.connect(roomSend);
-    roomSend.connect(roomDelay1);
-    roomDelay1.connect(roomDelay2);
-    roomDelay2.connect(roomFilter);
-    roomFilter.connect(roomReturn);
-    roomReturn.connect(roomMixBus);
-
-    // Continue wet chain through texture, shelf, dynamics, limiter, master gain
-    roomMixBus.connect(textureShaper);
-    textureShaper.connect(shelf);
-    shelf.connect(dynComp);
-    dynComp.connect(limiter);
-    limiter.connect(outGain);
-    outGain.connect(offlineCtx.destination);
-
+    const chain = NaSunoDSP.buildMasterChain(offlineCtx, params);
+    source.connect(chain.input);
+    chain.output.connect(chain.nodes.outGain);
+    chain.nodes.outGain.connect(offlineCtx.destination);
     source.start(0);
-
     const renderedBuffer = await offlineCtx.startRendering();
     return this.encodeWAV(renderedBuffer);
   }

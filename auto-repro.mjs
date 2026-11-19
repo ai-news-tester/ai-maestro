@@ -82,3 +82,23 @@ console.log('shimmer synthetic:', shimScore.score, 'vs pure sine:', sineScore.sc
 assert.ok(shimScore.score > sineScore.score, 'shimmer signal must score above pure sine');
 
 console.log('Task 2: PASS');
+// ---- Task 4: one shared mastering chain ----
+import { readFileSync as readFs } from 'node:fs';
+import { NaSunoDSP } from './docs/modules/dsp.js';
+const dspSrc = readFs(new URL('./docs/modules/dsp.js', import.meta.url), 'utf8');
+assert.equal((dspSrc.match(/buildMasterChain\s*\(/g) || []).length >= 3, true, 'buildMasterChain defined + called by init and exportWAV');
+const initBody = dspSrc.slice(dspSrc.indexOf('init(ctx)'), dspSrc.indexOf('connect(sourceNode'));
+const exportBody = dspSrc.slice(dspSrc.indexOf('static async exportWAV'));
+assert.ok(initBody.includes('buildMasterChain('), 'init must call buildMasterChain');
+assert.ok(exportBody.includes('buildMasterChain('), 'exportWAV must call buildMasterChain');
+assert.ok(!exportBody.includes('createBiquadFilter'), 'no hand-copied chain left in exportWAV');
+const chainBody = dspSrc.slice(dspSrc.indexOf('buildMasterChain(ctx'), dspSrc.indexOf('// MASTER_CHAIN_END'));
+const order = ['deshimmerShelf', '10000', 'deesser', '6500', 'airShelfNode', '16000', 'glueComp', 'loudnessGain', '-14', 'tpLimiter'];
+let lastIdx = -1;
+for (const token of order) {
+  const idx = chainBody.indexOf(token);
+  assert.ok(idx > lastIdx, `chain order: ${token} must appear after previous stage`);
+  lastIdx = idx;
+}
+assert.ok(chainBody.includes('-1'), 'limiter ceiling -1 dBTP present');
+console.log('Task 4: PASS');

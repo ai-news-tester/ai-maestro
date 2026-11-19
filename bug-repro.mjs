@@ -21,7 +21,7 @@ console.log('bandwidthHeal set 0.75 ->', knob.val, 'expected 0.75');
 
 // 3. DSP: qualityGate max is 6 in registry, outputGain 6 dB must be 10^(6/20)
 function p() { const o = {}; o.setValueAtTime = (v) => { o.v = v; }; o.setTargetAtTime = (v) => { o.v = v; }; o.value = 0; return o; }
-function mockFilter() { return { type: '', frequency: p(), Q: p(), gain: p() }; }
+function mockFilter() { return { type: '', frequency: p(), Q: p(), gain: p(), connect() {}, disconnect() {} }; }
 const ctx = {
   currentTime: 0,
   createBiquadFilter: () => mockFilter(),
