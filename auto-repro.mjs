@@ -195,4 +195,8 @@ for (const i of issues) {
   assert.ok(Number.isFinite(i.severity) && i.severity >= 0 && i.severity <= 1, `issue ${i.id} severity 0-1`);
   assert.ok(Number.isFinite(i.sliderDefault), `issue ${i.id} slider finite`);
 }
+// AUTO must disengage BYPASS (RAW): applyAutoReport sets dsp+ui bypass false
+const autoBody6 = appSrc6.slice(appSrc6.indexOf('function applyAutoReport'), appSrc6.indexOf('async function runAutoMaster'));
+assert.ok(autoBody6.includes('dsp.setBypass(false)'), 'applyAutoReport disengages DSP bypass');
+assert.ok(autoBody6.includes('ui.setBypassState(false)'), 'applyAutoReport updates bypass UI');
 console.log('Task 6: PASS');

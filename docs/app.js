@@ -558,6 +558,10 @@ function applyAutoReport(report, auto) {
   currentPresetKey = auto.presetKey;
   if (ui) ui.setPresetDisplay(auto.presetKey);
 
+  // AUTO must engage the chain, not leave BYPASS (RAW) on.
+  if (dsp) dsp.setBypass(false);
+  if (ui) ui.setBypassState(false);
+
   // Rebuild the live chain so it matches export exactly.
   if (dsp && isPlaying) startPlayback();
 
