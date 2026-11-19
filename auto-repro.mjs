@@ -90,7 +90,11 @@ assert.equal((dspSrc.match(/buildMasterChain\s*\(/g) || []).length >= 3, true, '
 const initBody = dspSrc.slice(dspSrc.indexOf('init(ctx)'), dspSrc.indexOf('connect(sourceNode'));
 const exportBody = dspSrc.slice(dspSrc.indexOf('static async exportWAV'));
 assert.ok(initBody.includes('buildMasterChain('), 'init must call buildMasterChain');
-assert.ok(exportBody.includes('buildMasterChain('), 'exportWAV must call buildMasterChain');
+// export may go through renderChain (shared with AUTO calibration) — it must
+// still reach buildMasterChain, never a hand-copied chain.
+const renderBody = dspSrc.slice(dspSrc.indexOf('static async renderChain'), dspSrc.indexOf('static measureRender'));
+assert.ok(renderBody.includes('buildMasterChain('), 'renderChain must call buildMasterChain');
+assert.ok(exportBody.includes('buildMasterChain(') || exportBody.includes('this.renderChain('), 'exportWAV must use the shared chain');
 assert.ok(!exportBody.includes('createBiquadFilter'), 'no hand-copied chain left in exportWAV');
 const chainBody = dspSrc.slice(dspSrc.indexOf('buildMasterChain(ctx'), dspSrc.indexOf('// MASTER_CHAIN_END'));
 const order = ['deshimmerShelf', '10000', 'deesser', '6500', 'airShelfNode', '16000', 'glueComp', 'loudnessGain', '-14', 'tpLimiter'];
@@ -200,3 +204,34 @@ const autoBody6 = appSrc6.slice(appSrc6.indexOf('function applyAutoReport'), app
 assert.ok(autoBody6.includes('dsp.setBypass(false)'), 'applyAutoReport disengages DSP bypass');
 assert.ok(autoBody6.includes('ui.setBypassState(false)'), 'applyAutoReport updates bypass UI');
 console.log('Task 6: PASS');
+
+// ---- Task 7 fix: closed-loop loudness, gain before limiters ----
+// RED: correctionGainDb does not exist yet; loudnessDb still subtracts
+// outputGain; exportWAV still puts outGain after tpLimiter.
+assert.equal(typeof NaSunoDSP.correctionGainDb, 'function', 'dsp exposes correctionGainDb');
+// MustaJaa after-state: -8.09 LUFS, +0.56 dBTP, target -14 -> -5.91 dB
+assert.ok(Math.abs(NaSunoDSP.correctionGainDb(-8.09, 0.56, -14) - (-5.91)) < 0.01, 'MustaJaa correction -5.91 dB');
+// TP-limited case: LUFS on target but TP 0 dBTP -> gain down 1 dB, no clipping
+assert.ok(Math.abs(NaSunoDSP.correctionGainDb(-14, 0, -14) - (-1)) < 0.01, 'TP-limited correction -1 dB');
+const chainBody7 = dspSrc.slice(dspSrc.indexOf('buildMasterChain(ctx'), dspSrc.indexOf('// MASTER_CHAIN_END'));
+assert.ok(!chainBody7.includes('targetLUFS - p.integratedLUFS - (p.outputGain'), 'loudnessGain must not subtract outputGain');
+const exportBody7 = dspSrc.slice(dspSrc.indexOf('static async exportWAV'), dspSrc.indexOf('static encodeWAV'));
+assert.ok(!exportBody7.includes('chain.nodes.outGain'), 'export must not put outGain after tpLimiter');
+assert.ok(exportBody7.includes('correctionGainDb') || exportBody7.includes('measureLoudness'), 'export measures and corrects');
+console.log('Task 7 fix: PASS');
+
+// ---- Task 7 parity: calibrated trim must be IN the shared chain ----
+// RED: no trimGain node, no renderChain helper, AUTO does not calibrate.
+assert.ok(chainBody7.includes('autoTrimDb'), 'chain reads autoTrimDb');
+assert.ok(chainBody7.includes('ceiling.connect(trimGain)'), 'trim after ceiling, inside shared chain');
+assert.ok(chainBody7.includes('output: trimGain'), 'chain output is the trim node');
+assert.equal(typeof NaSunoDSP.renderChain, 'function', 'renderChain helper shared by export and calibration');
+const autoRunBody = appSrc6.slice(appSrc6.indexOf('async function runAutoMaster'), appSrc6.indexOf('// ============================================================================\n// Preset Profile Management'));
+assert.ok(autoRunBody.includes('renderChain'), 'AUTO calibrates from a real render');
+assert.ok(autoRunBody.includes('correctionGainDb'), 'AUTO computes the trim from measurement');
+assert.ok(autoRunBody.includes('autoTrimDb'), 'AUTO stores the trim in params');
+assert.ok(autoBody6.includes('autoTrimDb'), 'applyAutoReport pushes trim to live dsp.params');
+const revertIdx = appSrc6.indexOf('revertManualBtn');
+const revertBody = appSrc6.slice(revertIdx, revertIdx + 600);
+assert.ok(revertBody.includes('autoTrimDb: 0') && revertBody.includes('integratedLUFS: null'), 'revert clears AUTO trim and loudness');
+console.log('Task 7 parity: PASS');

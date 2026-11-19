@@ -5,7 +5,7 @@
  */
 
 import { SunoDetector, StegoDetector, SpectralAnalyzer } from './modules/analyzer.js';
-import { NaSunoDSP } from './modules/dsp.js';
+import { NaSunoDSP } from './modules/dsp.js?v=8'; // shortcut: manual ?v= cache-bust, bump when dsp.js changes
 import { mapAutoReport } from './modules/auto.js';
 import { SpectrumRenderer, buildAutoIssues } from './modules/spectrum.js';
 import { UIController } from './modules/ui.js';
@@ -545,6 +545,7 @@ function applyAutoReport(report, auto) {
       integratedLUFS: auto.params.integratedLUFS,
       targetLUFS: auto.params.targetLUFS,
       limiterEngaged: auto.params.limiterEngaged,
+      autoTrimDb: auto.params.autoTrimDb || 0,
     });
   }
 
@@ -594,6 +595,13 @@ async function runAutoMaster() {
     setAutoProgress('Clean: mapping cleanup stages...');
     await new Promise((r) => setTimeout(r, 0));
     const auto = mapAutoReport(report, autoTargetLUFS());
+
+    setAutoProgress('Master: calibrating loudness (full-track render)...');
+    await new Promise((r) => setTimeout(r, 0));
+    // Calibrate the trim from a real render so live playback matches export.
+    const rendered = await NaSunoDSP.renderChain(currentBuffer, auto.params);
+    const measured = NaSunoDSP.measureRender(rendered);
+    auto.params.autoTrimDb = NaSunoDSP.correctionGainDb(measured.integratedLUFS, measured.truePeakDBTP, auto.params.targetLUFS);
 
     setAutoProgress('Master: applying chain...');
     applyAutoReport(report, auto);
@@ -656,13 +664,13 @@ function setupAutoControls() {
   const autoBtn = document.getElementById('autoBtn');
   if (autoBtn) autoBtn.addEventListener('click', () => runAutoMaster());
   const targetSel = document.getElementById('autoTargetLUFS');
-  if (targetSel) targetSel.addEventListener('change', () => { if (autoReport) applyAutoReport(autoReport, mapAutoReport(autoReport, autoTargetLUFS())); });
+  if (targetSel) targetSel.addEventListener('change', () => { if (autoReport) runAutoMaster(); });
   const origBtn = document.getElementById('playOriginalBtn');
   if (origBtn) origBtn.addEventListener('click', () => { if (dsp) dsp.setBypass(true); if (ui) ui.setBypassState(true); if (!isPlaying) startPlayback(); });
   const autoPlayBtn = document.getElementById('playAutoBtn');
   if (autoPlayBtn) autoPlayBtn.addEventListener('click', () => { if (dsp) dsp.setBypass(false); if (ui) ui.setBypassState(false); if (isPlaying) startPlayback(); else startPlayback(); });
   const revertBtn = document.getElementById('revertManualBtn');
-  if (revertBtn) revertBtn.addEventListener('click', () => { autoParams = null; autoReport = null; autoIssues = []; if (spectrum) spectrum.setAutoIssues([]); renderAutoIssues([]); applyPreset(lastManualPreset || 'standardEvasion'); setAutoProgress('Reverted to manual preset'); });
+  if (revertBtn) revertBtn.addEventListener('click', () => { autoParams = null; autoReport = null; autoIssues = []; if (dsp) Object.assign(dsp.params, { autoTrimDb: 0, integratedLUFS: null, sibilance: 0, hfCutoff: 0, correlation: 1, msBass: 0, crestFactorDB: 12 }); if (spectrum) spectrum.setAutoIssues([]); renderAutoIssues([]); applyPreset(lastManualPreset || 'standardEvasion'); if (isPlaying) startPlayback(); setAutoProgress('Reverted to manual preset'); });
 }
 
 // ============================================================================

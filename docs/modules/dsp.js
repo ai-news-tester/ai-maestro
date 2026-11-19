@@ -18,6 +18,7 @@
  */
 
 import { SIBILANCE_THRESHOLD } from './auto.js';
+import { SpectralAnalyzer } from './analyzer.js';
 
 export class NaSunoDSP {
   constructor() {
@@ -147,6 +148,44 @@ export class NaSunoDSP {
     return curve;
   }
 
+  /** Hard-clip curve at -1 dB (0.891): nothing after the limiter exceeds it. */
+  static makeCeilingCurve(n = 2048) {
+    const curve = new Float32Array(n);
+    const ceil = Math.pow(10, -1 / 20);
+    for (let i = 0; i < n; i++) {
+      const x = (i * 2) / n - 1;
+      curve[i] = Math.max(-ceil, Math.min(ceil, x));
+    }
+    return curve;
+  }
+
+  /**
+   * Closed-loop correction (dB, reduction only) from a measured render:
+   * bring LUFS to target, but never above the -1 dBTP headroom.
+   */
+  static correctionGainDb(measuredLUFS, measuredTP, targetLUFS = -14) {
+    const target = Number.isFinite(targetLUFS) ? targetLUFS : -14;
+    let gain = 0;
+    if (Number.isFinite(measuredLUFS)) gain = Math.min(gain, target - measuredLUFS);
+    if (Number.isFinite(measuredTP)) gain = Math.min(gain, -1 - measuredTP);
+    return gain;
+  }
+
+  /** Apply a reduction-only gain + hard -1 dB clamp in place to a rendered buffer. */
+  static applyCorrectionDb(buffer, db) {
+    if (!db || db >= 0) return buffer;
+    const linear = Math.pow(10, db / 20);
+    const ceil = Math.pow(10, -1 / 20);
+    for (let c = 0; c < buffer.numberOfChannels; c++) {
+      const data = buffer.getChannelData(c);
+      for (let i = 0; i < data.length; i++) {
+        const v = data[i] * linear;
+        data[i] = v > ceil ? ceil : v < -ceil ? -ceil : v;
+      }
+    }
+    return buffer;
+  }
+
   /**
    * Build the shared cleanup + mastering chain used by live playback and export.
    * Nodes are created on (or reused from) `nodes`; for the live instance pass `this`.
@@ -214,16 +253,23 @@ export class NaSunoDSP {
     set(qualityLimiter.threshold, -0.2 - 0.45 * Math.max(1, Math.min(6, p.qualityGate))); set(qualityLimiter.knee, 0); set(qualityLimiter.ratio, 20); set(qualityLimiter.attack, 0.003); set(qualityLimiter.release, 0.05);
     const loudnessGain = nodes.loudnessGain || ctx.createGain(); nodes.loudnessGain = loudnessGain;
     const targetLUFS = Number.isFinite(p.targetLUFS) ? p.targetLUFS : -14;
-    const loudnessDb = Number.isFinite(p.integratedLUFS) ? Math.max(-12, Math.min(12, targetLUFS - p.integratedLUFS - (p.outputGain || 0))) : 0;
+    // All gain before the limiters: loudness gain already is target minus input.
+    const loudnessDb = Number.isFinite(p.integratedLUFS) ? Math.max(-12, Math.min(12, targetLUFS - p.integratedLUFS)) : 0;
     set(loudnessGain.gain, Math.pow(10, loudnessDb / 20));
     const tpLimiter = nodes.truePeakLimiter || ctx.createDynamicsCompressor(); nodes.truePeakLimiter = tpLimiter;
     set(tpLimiter.threshold, -1); set(tpLimiter.knee, 0); set(tpLimiter.ratio, 20); set(tpLimiter.attack, 0.001); set(tpLimiter.release, 0.05);
-    const outGain = nodes.outGain || ctx.createGain(); nodes.outGain = outGain; set(outGain.gain, Math.pow(10, p.outputGain / 20));
+    const ceiling = nodes.ceiling || ctx.createWaveShaper(); nodes.ceiling = ceiling;
+    ceiling.curve = NaSunoDSP.makeCeilingCurve(); ceiling.oversample = '4x';
+    // AUTO trim: calibrated from a measured render so live matches export.
+    const trimGain = nodes.trimGain || ctx.createGain(); nodes.trimGain = trimGain;
+    const trimDb = Number.isFinite(p.autoTrimDb) ? Math.min(0, p.autoTrimDb) : 0;
+    set(trimGain.gain, Math.pow(10, trimDb / 20));
+    const outGain = nodes.outGain || ctx.createGain(); nodes.outGain = outGain; set(outGain.gain, Number.isFinite(p.integratedLUFS) ? 1 : Math.pow(10, (p.outputGain || 0) / 20));
     const chain = [stride1, stride2, stegoComb, notch1, notch2, notch3, neuralFilter, deshimmerShelf, deesser, airShelfNode, blendFilter1, blendFilter2, allpass1, allpass2, allpass3, statShaper, hashDelay];
     for (let i = 0; i < chain.length - 1; i++) chain[i].connect(chain[i + 1]);
     hashDelay.connect(roomMixBus); hashDelay.connect(roomSend); roomSend.connect(roomDelay1); roomDelay1.connect(roomDelay2); roomDelay2.connect(roomFilter); roomFilter.connect(roomReturn); roomReturn.connect(roomMixBus);
-    roomMixBus.connect(textureShaper); textureShaper.connect(shelf); shelf.connect(monoLows); monoLows.connect(glueComp); glueComp.connect(loudnessGain); loudnessGain.connect(qualityLimiter); qualityLimiter.connect(tpLimiter);
-    return { input: stride1, output: tpLimiter, nodes };
+    roomMixBus.connect(textureShaper); textureShaper.connect(shelf); shelf.connect(monoLows); monoLows.connect(glueComp); glueComp.connect(loudnessGain); loudnessGain.connect(qualityLimiter); qualityLimiter.connect(tpLimiter); tpLimiter.connect(ceiling); ceiling.connect(trimGain);
+    return { input: stride1, output: trimGain, nodes };
   }
   // MASTER_CHAIN_END
 
@@ -648,19 +694,38 @@ export class NaSunoDSP {
    * @param {boolean} isBypassed - if true, skips wet cascade and encodes raw PCM
    * @returns {Promise<Blob>}
    */
-  static async exportWAV(audioBuffer, params = {}, isBypassed = false) {
-    if (isBypassed || params.bypass) {
-      return this.encodeWAV(audioBuffer);
-    }
+  /** Render one buffer through the shared chain offline (export + AUTO calibration). */
+  static async renderChain(audioBuffer, params = {}) {
     const offlineCtx = new OfflineAudioContext(audioBuffer.numberOfChannels, audioBuffer.length, audioBuffer.sampleRate);
     const source = offlineCtx.createBufferSource();
     source.buffer = audioBuffer;
     const chain = NaSunoDSP.buildMasterChain(offlineCtx, params);
     source.connect(chain.input);
-    chain.output.connect(chain.nodes.outGain);
-    chain.nodes.outGain.connect(offlineCtx.destination);
+    chain.output.connect(offlineCtx.destination);
     source.start(0);
-    const renderedBuffer = await offlineCtx.startRendering();
+    return offlineCtx.startRendering();
+  }
+
+  /** Measure a rendered buffer with the same BS.1770 meter the report uses. */
+  static measureRender(buffer) {
+    return SpectralAnalyzer.measureLoudness(buffer.getChannelData(0), buffer.numberOfChannels > 1 ? buffer.getChannelData(1) : null, buffer.sampleRate);
+  }
+
+  static async exportWAV(audioBuffer, params = {}, isBypassed = false) {
+    if (isBypassed || params.bypass) {
+      return this.encodeWAV(audioBuffer);
+    }
+    const renderedBuffer = await this.renderChain(audioBuffer, params);
+    // AUTO already calibrated autoTrimDb inside the chain; the JS correction
+    // stays as a safety net for AUTO-style renders without a trim. Manual
+    // renders (no integratedLUFS) are never loudness-corrected.
+    if (!Number.isFinite(params.autoTrimDb) && Number.isFinite(params.integratedLUFS)) {
+      try {
+        const measured = this.measureRender(renderedBuffer);
+        const correction = NaSunoDSP.correctionGainDb(measured.integratedLUFS, measured.truePeakDBTP, Number.isFinite(params.targetLUFS) ? params.targetLUFS : -14);
+        if (correction < 0) NaSunoDSP.applyCorrectionDb(renderedBuffer, correction);
+      } catch (_) {}
+    }
     return this.encodeWAV(renderedBuffer);
   }
 
