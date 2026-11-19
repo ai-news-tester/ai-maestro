@@ -16,11 +16,15 @@ Ledger: `.superpowers/sdd/2026-11-16-auto-spotify/progress.md` (git-ignored; rul
 - 91ae1df — Task 5 complete: auto.js mapper (deepClean veto bug not ported), SIBILANCE_THRESHOLD single constant
 - 997ddf5 — Task 6 complete: buildAutoIssues + spectrum overlay bands + AUTO UI (button, target select, sliders, A/B, export naming)
 - 1500768 — fix: AUTO disengages BYPASS (RAW) (applyAutoReport dsp+ui bypass false); regression case in auto-repro.mjs RED→GREEN
+- 39e65e7 — Task 7 fix: closed-loop loudness; calibrated autoTrimDb gain node inside shared chain after -1 dB ceiling; live=export (max sample diff 0.000031)
+- 139d71d — docs: checkpoint after Task 7 verification
+- ea222cb — final fix pass: AUTO run races (autoRunToken), export no longer clobbers manual knob moves, AUTO params persist across refresh (boot + ensureAudioContext re-push)
 
 ## Next
-Task 7 of plan: real-track verification. Build track-check.mjs with real assertions (LUFS within 0.5 LU of target, true peak <= -1 dBTP, clipping 0, carriers down, no NaN) on MustaJaa-v2.wav and demo_original.wav. Node render needs an OfflineAudioContext stand-in or browser check via Playwright.
-Known open items before/within Task 7 (worktree FULL-PLAN §10): shimmer confidence cap may keep deshimmer at 0 on real tracks; verify spectralFlatness present in analyzeFullTrack report; fadeOut off-by-one-block; hashDelay LFO parity already closed in Task 4.
-After Task 7: final whole-branch review (fresh reviewer), one fix pass, then finishing-a-development-branch.
+Branch complete: Tasks 1-7 done, final review (self-review — fresh reviewer had no repo access) + one fix pass done, all suites green.
+Headless full-track gate PASS: MustaJaa -16.21 -> -14.0 LUFS / -6.47 dBTP / 0 clips; demo -12.59 -> -14.0 / -5.25 / 0 clips.
+Remaining: human A/B listening (regenerated masters in docs/audio/*.auto-master.wav), then merge decision (finishing-a-development-branch).
+Deferred minors: manual ?v= cache-bust bump on module changes; target change re-runs full ~30s calibration; reduction-only correction leaves TP well under ceiling.
 
 ## Resume instructions
 1. `git log --oneline -5` and read the ledger's `Task N: complete` lines — trust them over memory.
