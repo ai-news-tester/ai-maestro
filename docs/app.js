@@ -6,7 +6,8 @@
 
 import { SunoDetector, StegoDetector, SpectralAnalyzer } from './modules/analyzer.js';
 import { NaSunoDSP } from './modules/dsp.js';
-import { SpectrumRenderer } from './modules/spectrum.js';
+import { mapAutoReport } from './modules/auto.js';
+import { SpectrumRenderer, buildAutoIssues } from './modules/spectrum.js';
 import { UIController } from './modules/ui.js';
 import { RegistryDOM } from './modules/registry.js';
 import { PersistenceManager } from './modules/storage.js';
@@ -450,11 +451,167 @@ function handleCompositeKnobChange(knobId, knobVal) {
 }
 
 // ============================================================================
+// AUTO Mode: detect -> map -> apply -> report
+// ============================================================================
+let autoReport = null;
+let autoParams = null;
+let autoIssues = [];
+let lastManualPreset = 'standardEvasion';
+
+function autoTargetLUFS() {
+  const sel = document.getElementById('autoTargetLUFS');
+  const v = sel ? parseFloat(sel.value) : -14;
+  return Number.isFinite(v) ? v : -14;
+}
+
+function setAutoProgress(text) {
+  const el = document.getElementById('autoProgress');
+  if (el) el.textContent = text;
+}
+
+function renderAutoIssues(issues) {
+  const host = document.getElementById('autoIssues');
+  if (!host) return;
+  host.innerHTML = '';
+  for (const issue of issues) {
+    const row = document.createElement('div');
+    row.className = 'auto-issue-row';
+
+    const name = document.createElement('div');
+    name.className = 'auto-issue-name';
+    name.textContent = issue.name;
+
+    const where = document.createElement('div');
+    where.className = 'auto-issue-where';
+    const band = Number.isFinite(issue.freqLo) && Number.isFinite(issue.freqHi)
+      ? `${Math.round(issue.freqLo)}-${Math.round(issue.freqHi)} Hz`
+      : 'full track';
+    where.textContent = `${band} / ${issue.timeStart.toFixed(1)}-${issue.timeEnd.toFixed(1)} s`;
+
+    const bar = document.createElement('div');
+    bar.className = 'auto-issue-bar';
+    const fill = document.createElement('div');
+    fill.className = 'auto-issue-bar-fill';
+    fill.style.width = `${Math.round(issue.severity * 100)}%`;
+    bar.appendChild(fill);
+
+    const value = document.createElement('div');
+    value.className = 'auto-issue-val';
+    value.textContent = `${issue.measured}${issue.unit ? ' ' + issue.unit : ''} / target ${issue.target}${issue.unit ? ' ' + issue.unit : ''}`;
+
+    const knob = issue.knobId && registryDom ? registryDom.knobsMap[issue.knobId] : null;
+    row.append(name, where, bar, value);
+    if (knob) {
+      const slider = document.createElement('input');
+      slider.type = 'range';
+      slider.className = 'auto-issue-slider';
+      slider.min = issue.sliderMin;
+      slider.max = issue.sliderMax;
+      slider.step = issue.sliderStep;
+      slider.value = issue.sliderDefault;
+      slider.title = issue.reason || issue.name;
+      slider.addEventListener('input', () => {
+        const v = parseFloat(slider.value);
+        knob.setValue(v, true);
+        if (dsp) dsp.updateFromKnob(issue.knobId, knob.val);
+        currentPresetKey = 'custom';
+        if (ui) ui.setPresetDisplay('custom');
+        persistCurrentSettings();
+      });
+      row.appendChild(slider);
+    } else {
+      const note = document.createElement('div');
+      note.className = 'auto-issue-manual';
+      note.textContent = issue.sliderDefault ? 'on' : 'info';
+      row.appendChild(note);
+    }
+    host.appendChild(row);
+  }
+}
+
+/** Apply an AUTO result: push every param through the same path export uses, then re-report. */
+function applyAutoReport(report, auto) {
+  autoReport = report;
+  autoParams = auto.params;
+
+  if (dsp) {
+    // AUTO-only chain inputs (not registry knobs)
+    Object.assign(dsp.params, {
+      sibilance: auto.params.sibilance,
+      hfCutoff: auto.params.hfCutoff,
+      correlation: auto.params.correlation,
+      msBass: auto.params.msBass,
+      crestFactorDB: auto.params.crestFactorDB,
+      integratedLUFS: auto.params.integratedLUFS,
+      targetLUFS: auto.params.targetLUFS,
+      limiterEngaged: auto.params.limiterEngaged,
+    });
+  }
+
+  for (const [id, val] of Object.entries(auto.params)) {
+    const knob = registryDom && registryDom.knobsMap[id];
+    if (!knob) continue;
+    knob.setValue(val, false, knob.fineStep());
+    if (dsp) dsp.updateFromKnob(id, knob.val);
+  }
+
+  currentPresetKey = auto.presetKey;
+  if (ui) ui.setPresetDisplay(auto.presetKey);
+
+  // Rebuild the live chain so it matches export exactly.
+  if (dsp && isPlaying) startPlayback();
+
+  autoIssues = buildAutoIssues(report, auto.params, auto.reasons, auto.params.targetLUFS);
+  if (spectrum) spectrum.setAutoIssues(autoIssues);
+  renderAutoIssues(autoIssues);
+
+  const statusEl = document.getElementById('forensicStatus');
+  if (statusEl) {
+    const lufs = Number.isFinite(report.integratedLUFS) ? report.integratedLUFS.toFixed(1) : 'n/a';
+    const tp = Number.isFinite(report.truePeakDBTP) ? report.truePeakDBTP.toFixed(1) : 'n/a';
+    statusEl.textContent = `AUTO ${auto.presetKey}: ${lufs} LUFS -> target ${auto.params.targetLUFS}, true peak ${tp} dBTP, ${autoIssues.length} issue(s)`;
+  }
+  persistCurrentSettings();
+}
+
+async function runAutoMaster() {
+  const statusEl = document.getElementById('forensicStatus');
+  if (!currentBuffer) {
+    if (statusEl) statusEl.textContent = 'Load or upload an audio file first.';
+    return;
+  }
+  const btn = document.getElementById('autoBtn');
+  if (btn) btn.disabled = true;
+  try {
+    setAutoProgress('Detect: analysing full track...');
+    await new Promise((r) => setTimeout(r, 0));
+    const report = SpectralAnalyzer.analyzeFullTrack(currentBuffer);
+
+    setAutoProgress('Clean: mapping cleanup stages...');
+    await new Promise((r) => setTimeout(r, 0));
+    const auto = mapAutoReport(report, autoTargetLUFS());
+
+    setAutoProgress('Master: applying chain...');
+    applyAutoReport(report, auto);
+    await new Promise((r) => setTimeout(r, 0));
+
+    setAutoProgress('Export: ready - use EXPORT CLEANED WAV');
+  } catch (err) {
+    console.error('AUTO error:', err);
+    if (statusEl) statusEl.textContent = `AUTO failed: ${err.message}`;
+    setAutoProgress('Failed');
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+// ============================================================================
 // Preset Profile Management
 // ============================================================================
 function applyPreset(presetKey) {
   if (!registry || !registry.presets[presetKey]) return;
   currentPresetKey = presetKey;
+  lastManualPreset = presetKey;
   const p = registry.presets[presetKey];
 
   // Apply composite knob values from preset
@@ -489,6 +646,22 @@ function applyPreset(presetKey) {
 }
 
 // ============================================================================
+// AUTO Controls Wiring
+// ============================================================================
+function setupAutoControls() {
+  const autoBtn = document.getElementById('autoBtn');
+  if (autoBtn) autoBtn.addEventListener('click', () => runAutoMaster());
+  const targetSel = document.getElementById('autoTargetLUFS');
+  if (targetSel) targetSel.addEventListener('change', () => { if (autoReport) applyAutoReport(autoReport, mapAutoReport(autoReport, autoTargetLUFS())); });
+  const origBtn = document.getElementById('playOriginalBtn');
+  if (origBtn) origBtn.addEventListener('click', () => { if (dsp) dsp.setBypass(true); if (ui) ui.setBypassState(true); if (!isPlaying) startPlayback(); });
+  const autoPlayBtn = document.getElementById('playAutoBtn');
+  if (autoPlayBtn) autoPlayBtn.addEventListener('click', () => { if (dsp) dsp.setBypass(false); if (ui) ui.setBypassState(false); if (isPlaying) startPlayback(); else startPlayback(); });
+  const revertBtn = document.getElementById('revertManualBtn');
+  if (revertBtn) revertBtn.addEventListener('click', () => { autoParams = null; autoReport = null; autoIssues = []; if (spectrum) spectrum.setAutoIssues([]); renderAutoIssues([]); applyPreset(lastManualPreset || 'standardEvasion'); setAutoProgress('Reverted to manual preset'); });
+}
+
+// ============================================================================
 // Export WAV Offline Handler
 // ============================================================================
 function setupExportWAV() {
@@ -512,6 +685,7 @@ function setupExportWAV() {
           currentKnobValues[id] = knob.val;
         }
       }
+      if (autoParams) Object.assign(currentKnobValues, autoParams);
 
       const isBypassed = !!(dsp?.isBypassed || currentTrackType === 'raw' || currentTrackType === 'custom_raw');
       const wavBlob = await NaSunoDSP.exportWAV(currentBuffer, currentKnobValues, isBypassed);
@@ -522,7 +696,7 @@ function setupExportWAV() {
       const baseName = uploadedBuffer
         ? (currentTrackType === 'custom_raw' ? `${uploadedFileName}_original` : `${uploadedFileName}_processed`)
         : (currentTrackType === 'raw' ? 'cleaned_demo_original' : 'cleaned_audio');
-      a.download = `${baseName}_${Date.now()}.wav`;
+      a.download = autoParams ? `${uploadedFileName || baseName}.auto-master.wav` : `${baseName}_${Date.now()}.wav`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
@@ -726,6 +900,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // 7. WAV Export setup
     setupExportWAV();
+    setupAutoControls();
 
     // 8. Playback Seeker / Scrubber setup
     setupSeekerControls();

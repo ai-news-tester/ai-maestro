@@ -153,3 +153,46 @@ assert.ok(extreme.params.outputGain <= 6 && extreme.params.outputGain >= -12, 'o
 assert.ok(extreme.params.carrierErase <= 100 && extreme.params.stegoStrip <= 100, 'percent knobs clamped');
 
 console.log('Task 5: PASS');
+
+// ---- Task 6: AUTO UI wiring, issues model ----
+import { readFileSync as rf6 } from 'node:fs';
+import { FLKnob } from './docs/modules/knob.js';
+const appSrc6 = rf6(new URL('./docs/app.js', import.meta.url), 'utf8');
+const reg6 = JSON.parse(rf6(new URL('./docs/knob-registry.json', import.meta.url), 'utf8'));
+const dsh = reg6.compositeKnobs.find((k) => k.id === 'deshimmer');
+assert.ok(dsh && dsh.info.description.includes('does not remove watermarks') && dsh.info.description.includes('does not affect AI detection'), 'registry disclaimer');
+assert.ok(appSrc6.includes('applyAutoReport'), 'app.js must define applyAutoReport');
+assert.ok(appSrc6.includes('analyzeFullTrack'), 'app.js must call analyzeFullTrack');
+assert.ok(appSrc6.includes('mapAutoReport'), 'app.js must call mapAutoReport');
+assert.ok(/Detect/.test(appSrc6) && /Master/.test(appSrc6) && /Export/.test(appSrc6), 'AUTO progress stages');
+
+// Manual override: AUTO sets 80, knob setValue(20) keeps 20
+const mk6 = () => ({ dataset: {}, querySelector: () => null, addEventListener() {}, dispatchEvent() {}, style: {} });
+const k6 = new FLKnob(mk6(), { knobId: 'deshimmer', min: 0, max: 100, step: 1, default: 0, val: 0, unit: '%', readoutEl: { textContent: '' } });
+k6.setValue(80, false);
+k6.setValue(20, false);
+assert.equal(k6.val, 20, 'manual override keeps 20');
+
+// Issues model: known-issue report produces marker/bar/slider with non-zero default
+const { buildAutoIssues } = await import('./docs/modules/spectrum.js');
+const auto6 = mapAutoReport(loudReport);
+const issues = buildAutoIssues(loudReport, auto6.params, auto6.reasons);
+assert.ok(Array.isArray(issues) && issues.length > 0, 'issues list non-empty');
+const carrierIssue = issues.find((i) => i.id === 'carrier');
+assert.ok(carrierIssue, 'carrier issue present');
+assert.ok(carrierIssue.freqLo >= 15000 && carrierIssue.freqHi <= 20000, 'carrier band 15-20k');
+assert.ok(carrierIssue.severity > 0, 'carrier severity > 0');
+assert.ok(carrierIssue.sliderDefault > 50, 'carrier slider default from AUTO (raised above base 50)');
+const lufsIssue = issues.find((i) => i.id === 'loudness');
+assert.ok(lufsIssue, 'LUFS issue present');
+assert.equal(lufsIssue.target, -14, 'LUFS target -14');
+assert.ok(lufsIssue.sliderDefault !== 0, 'LUFS slider non-zero when off target');
+const clipIssue = issues.find((i) => i.id === 'clipping');
+assert.ok(clipIssue && clipIssue.sliderDefault === auto6.params.qualityGate, 'clipping slider wired to qualityGate');
+assert.ok(typeof clipIssue.reason === 'string' && clipIssue.reason.length > 0, 'clipping reason non-empty');
+for (const i of issues) {
+  assert.ok(typeof i.name === 'string' && i.name.length > 0, `issue ${i.id} name`);
+  assert.ok(Number.isFinite(i.severity) && i.severity >= 0 && i.severity <= 1, `issue ${i.id} severity 0-1`);
+  assert.ok(Number.isFinite(i.sliderDefault), `issue ${i.id} slider finite`);
+}
+console.log('Task 6: PASS');

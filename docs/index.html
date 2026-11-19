@@ -234,6 +234,25 @@
     <!-- Panel View Containers (Dynamically populated by registry.js) -->
     <section class="rack-panel-view active" id="evasionPanel" data-panel-view="evasion"></section>
 
+    <!-- AUTO Mode: detect, clean, master, export with no knobs -->
+    <section class="auto-panel" id="autoPanel">
+      <div class="auto-controls">
+        <button class="btn-auto" id="autoBtn" title="Detect, clean, master and export to Spotify target">
+          <span>AUTO MASTER</span>
+        </button>
+        <span class="auto-progress" id="autoProgress">Idle</span>
+      </div>
+      <div class="auto-target-row">
+        <label for="autoTargetLUFS" class="auto-target-label">TARGET</label>
+        <select class="auto-target-select" id="autoTargetLUFS">
+          <option value="-14" selected>Streaming -14 LUFS</option>
+          <option value="-12">Loud -12 LUFS</option>
+          <option value="-10">Club -10 LUFS</option>
+        </select>
+      </div>
+      <div class="auto-issues" id="autoIssues"></div>
+    </section>
+
     <!-- Action & Export Bar -->
     <footer class="action-export-bar">
       <div class="export-cluster">
@@ -242,6 +261,11 @@
           <span>EXPORT CLEANED WAV</span>
         </button>
         <span class="export-status" id="exportStatus">Ready</span>
+      </div>
+      <div class="ab-cluster">
+        <button class="btn-ab" id="playOriginalBtn" title="Play the original, unprocessed audio">PLAY ORIGINAL</button>
+        <button class="btn-ab" id="playAutoBtn" title="Play the AUTO-mastered result">PLAY AUTO</button>
+        <button class="btn-ab" id="revertManualBtn" title="Revert to the last manual preset">REVERT TO MANUAL</button>
       </div>
     </footer>
 
