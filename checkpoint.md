@@ -15,6 +15,7 @@ Ledger: `.superpowers/sdd/2026-11-16-auto-spotify/progress.md` (git-ignored; rul
 
 - 91ae1df — Task 5 complete: auto.js mapper (deepClean veto bug not ported), SIBILANCE_THRESHOLD single constant
 - 997ddf5 — Task 6 complete: buildAutoIssues + spectrum overlay bands + AUTO UI (button, target select, sliders, A/B, export naming)
+- 1500768 — fix: AUTO disengages BYPASS (RAW) (applyAutoReport dsp+ui bypass false); regression case in auto-repro.mjs RED→GREEN
 
 ## Next
 Task 7 of plan: real-track verification. Build track-check.mjs with real assertions (LUFS within 0.5 LU of target, true peak <= -1 dBTP, clipping 0, carriers down, no NaN) on MustaJaa-v2.wav and demo_original.wav. Node render needs an OfflineAudioContext stand-in or browser check via Playwright.
