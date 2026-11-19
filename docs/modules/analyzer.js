@@ -432,4 +432,148 @@ export class SpectralAnalyzer {
       crestFactorDB: +crest.toFixed(1),
     };
   }
+
+  /**
+   * BS.1770 K-weighting coefficients for any sample rate:
+   * stage 1 high shelf (+4 dB above ~1.68 kHz), stage 2 high-pass (~38 Hz).
+   * @returns {{shelf: number[], hp: number[]}} each [b0,b1,b2,a1,a2] (a0 normalized to 1)
+   */
+  static kWeightCoeffs(sr) {
+    // Stage 1: shelving filter
+    const f0 = 1681.974450955533, G = 3.99984385397334, Q = 0.7071752369554196;
+    const K = Math.tan((Math.PI * f0) / sr);
+    const Vh = Math.pow(10, G / 20);
+    const Vb = Math.pow(Vh, 0.4996667741545416);
+    const a0 = 1 + K / Q + K * K;
+    const shelf = [
+      (Vh + (Vb * K) / Q + K * K) / a0,
+      (2 * (K * K - Vh)) / a0,
+      (Vh - (Vb * K) / Q + K * K) / a0,
+      (2 * (K * K - 1)) / a0,
+      (1 - K / Q + K * K) / a0,
+    ];
+    // Stage 2: high-pass
+    const f1 = 38.13547087602444, Q1 = 0.5003270373238773;
+    const K1 = Math.tan((Math.PI * f1) / sr);
+    const a0h = 1 + K1 / Q1 + K1 * K1;
+    const hp = [1 / a0h, -2 / a0h, 1 / a0h, (2 * (K1 * K1 - 1)) / a0h, (1 - K1 / Q1 + K1 * K1) / a0h];
+    return { shelf, hp };
+  }
+
+  /** Apply one biquad (Direct Form I) to samples, returning Float64Array. */
+  static biquad(samples, c) {
+    const out = new Float64Array(samples.length);
+    let x1 = 0, x2 = 0, y1 = 0, y2 = 0;
+    for (let i = 0; i < samples.length; i++) {
+      const x0 = samples[i];
+      const y0 = c[0] * x0 + c[1] * x1 + c[2] * x2 - c[3] * y1 - c[4] * y2;
+      out[i] = y0;
+      x2 = x1; x1 = x0; y2 = y1; y1 = y0;
+    }
+    return out;
+  }
+
+  /**
+   * BS.1770-5 gated integrated loudness, LRA, and true peak for a stereo pair.
+   * Silence returns -Infinity (never NaN). right=null measures mono.
+   * @returns {{integratedLUFS: number, loudnessRange: number, truePeakDBTP: number}}
+   */
+  static measureLoudness(left, right, sr) {
+    const n = left.length;
+    if (n === 0) return { integratedLUFS: -Infinity, loudnessRange: 0, truePeakDBTP: -Infinity };
+    const { shelf, hp } = this.kWeightCoeffs(sr);
+    const chans = right ? [left, right] : [left];
+
+    // Prefix sums of K-weighted squares per channel => O(1) block energies
+    const prefix = chans.map((ch) => {
+      const kw = this.biquad(this.biquad(ch, shelf), hp);
+      const p = new Float64Array(n + 1);
+      for (let i = 0; i < n; i++) p[i + 1] = p[i] + kw[i] * kw[i];
+      return p;
+    });
+    const blockEnergy = (start, end) => {
+      let z = 0;
+      for (const p of prefix) z += (p[end] - p[start]) / (end - start);
+      return z; // channel weights 1.0 for L/R per BS.1770
+    };
+    const loud = (z) => (z > 0 ? -0.691 + 10 * Math.log10(z) : -Infinity);
+
+    // Integrated: 400ms blocks, 100ms step, absolute -70 LUFS + relative -10 LU gates
+    const blockLen = Math.min(Math.round(0.4 * sr), n);
+    const step = Math.max(1, Math.round(0.1 * sr));
+    const blocks = [];
+    for (let s = 0; s + blockLen <= n; s += step) blocks.push(blockEnergy(s, s + blockLen));
+    const absGated = blocks.filter((z) => loud(z) > -70);
+    let integrated = -Infinity;
+    if (absGated.length > 0) {
+      const meanZ = absGated.reduce((a, b) => a + b, 0) / absGated.length;
+      const relGate = loud(meanZ) - 10;
+      const gated = absGated.filter((z) => loud(z) > relGate);
+      if (gated.length > 0) integrated = loud(gated.reduce((a, b) => a + b, 0) / gated.length);
+    }
+
+    // LRA (EBU Tech 3342): 3s short-term, -70 abs / -20 rel gates, 10th..95th percentile
+    // shortcut: 1s step instead of 100ms, upgrade if LRA needs spec-exact overlap
+    const stLen = Math.min(Math.round(3 * sr), n);
+    const stStep = Math.max(1, Math.round(1 * sr));
+    const st = [];
+    for (let s = 0; s + stLen <= n; s += stStep) st.push(loud(blockEnergy(s, s + stLen)));
+    let lra = 0;
+    const stAbs = st.filter((l) => l > -70);
+    if (stAbs.length > 1) {
+      const meanZ = stAbs.reduce((a, l) => a + Math.pow(10, (l + 0.691) / 10), 0) / stAbs.length;
+      const relGate = -0.691 + 10 * Math.log10(meanZ) - 20;
+      const gated = stAbs.filter((l) => l > relGate).sort((a, b) => a - b);
+      if (gated.length > 1) {
+        const pct = (p) => gated[Math.min(gated.length - 1, Math.floor((p / 100) * gated.length))];
+        lra = pct(95) - pct(10);
+      }
+    }
+
+    let tp = -Infinity;
+    for (const ch of chans) tp = Math.max(tp, this.measureTruePeak(ch, sr));
+
+    return {
+      integratedLUFS: Number.isFinite(integrated) ? +integrated.toFixed(2) : -Infinity,
+      loudnessRange: +lra.toFixed(2),
+      truePeakDBTP: Number.isFinite(tp) ? +tp.toFixed(2) : -Infinity,
+    };
+  }
+
+  /**
+   * True peak in dBTP via 4x polyphase windowed-sinc interpolation (49-tap prototype).
+   * Catches inter-sample overs that sample peak misses. Silence => -Infinity.
+   */
+  static measureTruePeak(samples, sr) {
+    const n = samples.length;
+    if (n === 0) return -Infinity;
+    // Prototype lowpass h[k] = sinc((k-24)/4) * hamming, phases k%4==p; phase 0 is identity (delay 6)
+    const phases = [[], [], [], []];
+    for (let p = 0; p < 4; p++) {
+      for (let k = p; k < 49; k += 4) {
+        const u = (k - 24) / 4;
+        const sinc = u === 0 ? 1 : Math.sin(Math.PI * u) / (Math.PI * u);
+        const win = 0.54 - 0.46 * Math.cos((2 * Math.PI * k) / 48);
+        phases[p].push(sinc * win);
+      }
+      const sum = phases[p].reduce((a, b) => a + b, 0);
+      for (let t = 0; t < phases[p].length; t++) phases[p][t] /= sum; // DC-preserving
+    }
+    let peak = 0;
+    for (let i = 0; i < n; i++) {
+      const abs = Math.abs(samples[i]);
+      if (abs > peak) peak = abs;
+      for (let p = 1; p < 4; p++) {
+        const taps = phases[p];
+        let y = 0;
+        for (let m = 0; m < taps.length; m++) {
+          const idx = i - m;
+          if (idx >= 0 && idx < n) y += taps[m] * samples[idx];
+        }
+        const ay = Math.abs(y);
+        if (ay > peak) peak = ay;
+      }
+    }
+    return peak > 0 ? 20 * Math.log10(peak) : -Infinity;
+  }
 }
