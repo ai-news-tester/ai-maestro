@@ -13,10 +13,13 @@ Ledger: `.superpowers/sdd/2026-11-16-auto-spotify/progress.md` (git-ignored; rul
 - 28bfb3a — Task 3 complete: deshimmer knob (15th) + live 10 kHz shelf + effective boosts
 - 3940bc4 — Task 4 complete: shared buildMasterChain used by init/connect/exportWAV; hand-copied offline chain deleted; LFO parity live=export
 
+- 91ae1df — Task 5 complete: auto.js mapper (deepClean veto bug not ported), SIBILANCE_THRESHOLD single constant
+- 997ddf5 — Task 6 complete: buildAutoIssues + spectrum overlay bands + AUTO UI (button, target select, sliders, A/B, export naming)
+
 ## Next
-Task 5 of plan: AUTO mapper docs/modules/auto.js — mapAutoReport + deshimmerStrengthFromShimmer.
-Port from .claude/worktrees/auto-spotify/docs/modules/auto.js but fix its known bugs first (see worktree docs/AUTO-SPOTIFY-FULL-PLAN.md section 10): preset override vetoing deepClean, shimmer confidence cap making deshimmer never fire, spectralFlatness missing from report.
-Then Task 6 (AUTO UI + spectrum overlay/issues/sliders) and Task 7 (real-track verification on MustaJaa-v2.wav + demo_original.wav).
+Task 7 of plan: real-track verification. Build track-check.mjs with real assertions (LUFS within 0.5 LU of target, true peak <= -1 dBTP, clipping 0, carriers down, no NaN) on MustaJaa-v2.wav and demo_original.wav. Node render needs an OfflineAudioContext stand-in or browser check via Playwright.
+Known open items before/within Task 7 (worktree FULL-PLAN §10): shimmer confidence cap may keep deshimmer at 0 on real tracks; verify spectralFlatness present in analyzeFullTrack report; fadeOut off-by-one-block; hashDelay LFO parity already closed in Task 4.
+After Task 7: final whole-branch review (fresh reviewer), one fix pass, then finishing-a-development-branch.
 
 ## Resume instructions
 1. `git log --oneline -5` and read the ledger's `Task N: complete` lines — trust them over memory.
