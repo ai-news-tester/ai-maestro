@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url';
 const rootDir = fileURLToPath(new URL('.', import.meta.url));
 const NL = String.fromCharCode(10);
 const tracked = execFileSync('git', ['ls-files'], { cwd: rootDir, encoding: 'utf8' }).split(NL).map((s) => s.trim()).filter(Boolean);
+const trackedSet = new Set(tracked.map((f) => f.split('\\').join('/')));
 const read = (file) => readFileSync(join(rootDir, file), 'utf8');
 
 const failures = [];
@@ -31,7 +32,11 @@ check('1 relative links resolve', () => {
   let checked = 0;
   for (const file of tracked) {
     if (!LINK_EXTS.has(extname(file).toLowerCase())) continue;
-    const text = read(file);
+    // Code is not links: fenced blocks and inline spans routinely contain
+    // `](...)` examples and src="..." snippets that are not real references.
+    const text = read(file)
+      .replace(/^```[\s\S]*?^```/gm, '')
+      .replace(/`[^`\n]*`/g, '');
     for (const pattern of patterns) {
       for (const m of text.matchAll(pattern)) {
         let target = m[1].trim().split(/\s+/)[0].replace(/^<|>$/g, '');
@@ -41,8 +46,10 @@ check('1 relative links resolve', () => {
         let decoded = clean;
         try { decoded = decodeURIComponent(clean); } catch {}
         checked++;
-        const resolved = normalize(join(dirname(file), decoded));
-        if (!existsSync(join(rootDir, resolved))) missing.push(file + ' -> ' + target);
+        const resolved = normalize(join(dirname(file), decoded)).split('\\').join('/');
+        // A target that exists locally but is untracked would 404 on GitHub.
+        if (!existsSync(join(rootDir, resolved))) missing.push(file + ' -> ' + target + ' (missing on disk)');
+        else if (!trackedSet.has(resolved)) missing.push(file + ' -> ' + target + ' (exists but UNTRACKED — would 404 on GitHub)');
       }
     }
   }
