@@ -1,5 +1,5 @@
 ﻿<p align="center">
-  <a href="https://ahmadhassan-bted.github.io/NaSuno/">
+  <a href="https://ai-news-tester.github.io/aim/">
     <img src="docs/assets/humanized_knob_banner_large.png" alt="NaSuno - Anti-Attribution & AI Watermark Removal" width="100%"/>
   </a>
 </p>
@@ -12,26 +12,26 @@
 </p>
 
 <p align="center">
-  <a href="https://trendshift.io/repositories/282905?utm_source=trendshift-badge&amp;utm_medium=badge&amp;utm_campaign=badge-trendshift-282905" target="_blank" rel="noopener noreferrer"><img src="https://trendshift.io/api/badge/trendshift/repositories/282905/daily" alt="AhmadHassan-BTed%2FNaSuno | Trendshift" width="250" height="55"/></a>
+  <a href="https://trendshift.io/repositories/282905?utm_source=trendshift-badge&amp;utm_medium=badge&amp;utm_campaign=badge-trendshift-282905" target="_blank" rel="noopener noreferrer"><img src="https://trendshift.io/api/badge/trendshift/repositories/282905/daily" alt="ai-news-tester%2Faim | Trendshift" width="250" height="55"/></a>
 </p>
 
 <p align="center">
-  <a href="https://ahmadhassan-bted.github.io/NaSuno/"><img src="https://img.shields.io/badge/Live%20Studio-Web%20DSP%20Rack-00F2FE?logo=googlechrome&logoColor=white" alt="Live Studio"></a>
-  <a href="https://github.com/AhmadHassan-BTed/NaSuno/actions/workflows/ci.yml"><img src="https://github.com/AhmadHassan-BTed/NaSuno/actions/workflows/ci.yml/badge.svg" alt="CI Status"></a>
-  <a href="https://ahmadhassan-bted.github.io/NaSuno/"><img src="https://github.com/AhmadHassan-BTed/NaSuno/actions/workflows/pages.yml/badge.svg" alt="Pages Deployment"></a>
-  <a href="https://github.com/AhmadHassan-BTed/NaSuno/stargazers"><img src="https://img.shields.io/github/stars/AhmadHassan-BTed/NaSuno?style=flat&color=ffd700" alt="GitHub Stars"></a>
+  <a href="https://ai-news-tester.github.io/aim/"><img src="https://img.shields.io/badge/Live%20Studio-Web%20DSP%20Rack-00F2FE?logo=googlechrome&logoColor=white" alt="Live Studio"></a>
+  <a href="https://github.com/ai-news-tester/aim/actions/workflows/ci.yml"><img src="https://github.com/ai-news-tester/aim/actions/workflows/ci.yml/badge.svg" alt="CI Status"></a>
+  <a href="https://ai-news-tester.github.io/aim/"><img src="https://github.com/ai-news-tester/aim/actions/workflows/pages.yml/badge.svg" alt="Pages Deployment"></a>
+  <a href="https://github.com/ai-news-tester/aim/stargazers"><img src="https://img.shields.io/github/stars/ai-news-tester/aim?style=flat&color=ffd700" alt="GitHub Stars"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="MIT License"></a>
   <a href="docs/architecture.md"><img src="https://img.shields.io/badge/Architecture-Hexagonal%20DSP-orange" alt="Architecture"></a>
 </p>
 
 <p align="center">
-  <a href="https://ahmadhassan-bted.github.io/NaSuno/">
+  <a href="https://ai-news-tester.github.io/aim/">
     <img src="docs/assets/plugin_hero.jpg" alt="NaSuno Web Audio Studio - Dark Skeuomorphic DSP Rack" width="880"/>
   </a>
 </p>
 
 <p align="center">
-  <a href="https://ahmadhassan-bted.github.io/NaSuno/"><strong>🎛️ Launch Web Audio Studio</strong></a> &bull;
+  <a href="https://ai-news-tester.github.io/aim/"><strong>🎛️ Launch Web Audio Studio</strong></a> &bull;
   <a href="#-core-capabilities--product-matrix"><strong>Capability Matrix</strong></a> &bull;
   <a href="#-14-vector-anti-attribution-matrix"><strong>14-Vector Defense</strong></a> &bull;
   <a href="#-system-architecture"><strong>Architecture</strong></a> &bull;
@@ -105,7 +105,7 @@ Generative audio models (Suno, Udio, ElevenLabs, Google SynthID) inject propriet
 
 Test and experience NaSuno directly in your browser with zero installation:
 
-👉 **[Launch NaSuno Web Audio Studio](https://ahmadhassan-bted.github.io/NaSuno/)**
+👉 **[Launch NaSuno Web Audio Studio](https://ai-news-tester.github.io/aim/)**
 
 * **100% Client-Side:** Processes audio strictly in memory using the Web Audio API. Zero files uploaded, zero data logged.
 * **FL Studio-Inspired Interface:** Dark skeuomorphic DSP rack featuring realistic aluminum rotary knobs, LED VU meters, and interactive frequency analyzers.
@@ -189,7 +189,7 @@ NaSuno/
 ## 🤝 Community & Governance
 
 * **Direct Developer Contact:** [ahmadhassan.bted@gmail.com](mailto:ahmadhassan.bted@gmail.com)
-* **Bug Reports & Inquiries:** [Open an Issue](https://github.com/AhmadHassan-BTed/NaSuno/issues)
+* **Bug Reports & Inquiries:** [Open an Issue](https://github.com/ai-news-tester/aim/issues)
 * **Security Advisories:** Review our [Security Policy](.github/SECURITY.md) for responsible disclosure procedures.
 * **Code of Conduct:** Please review our [Code of Conduct](.github/CODE_OF_CONDUCT.md).
 
