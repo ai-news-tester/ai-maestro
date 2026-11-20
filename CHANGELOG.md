@@ -7,41 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [Unreleased]
-
-### Planned
-- Streaming audio processing pipeline via WebSockets.
-- Direct C++/Rust extensions for SIMD-accelerated FFT filterbanks.
-- Web UI dashboard for interactive spectrogram visual inspections.
-
----
-
-## [2.0.0] - 2026-09-29
+## [1.0.0] - 2026-11-20
 
 ### Added
-- Enterprise-grade modular architecture adhering to strict Separation of Concerns (SoC) and Data Coupling.
-- Contract-based interfaces (`AudioDetectorProtocol`, `AudioRemoverProtocol`, `BaseDetector`, `BaseRemover`).
-- Unified CLI interface (`nasuno clean`, `nasuno detect`, `nasuno analyze`, `nasuno compare`, `nasuno benchmark`).
-- Environment variable configuration engine with `.env.example` support.
-- Multi-tier processing profiles: `gentle`, `moderate`, `aggressive`, and `extreme`.
-- Multi-stage Docker containerization with non-root security context and multi-architecture support.
-- GitHub Actions CI/CD matrix workflows (Python 3.9 through 3.13, CodeQL analysis, release automation).
-- Open-source governance and health documentation suite.
-- Comprehensive unit and integration test suites.
+- AI-Maestro: a zero-dependency browser Web Audio studio served from `docs/`, with no build step and no server.
+- Full-track analysis: BS.1770-5 K-weighted LUFS and loudness range, 4x-oversampled true peak, clipping, DC offset, silence and fades, stereo width and correlation, spectral tilt, sibilance, HF cutoff, ultrasonic carrier prominence (15.5 / 17.5 / 19.5 kHz), cepstral echo confidence, and an HF shimmer score.
+- AUTO mastering: detect, clean, master, and export in one run, with a reason for every mapped value and a reduction-only loudness trim calibrated from a real render.
+- 15 knobs in four groups (RESONANCE CLEANUP, PHASE & TEXTURE, NATURALIZATION, MASTERING) with five presets: Off, Gentle, Standard, Deep, Full.
+- Live playback and export sharing one chain (`buildMasterChain`), with 16-bit PCM WAV export named `<track>.auto-master.wav` at -14 (default), -12, or -10 LUFS.
+- Plain-assert test suites: `bug-repro.mjs`, `auto-repro.mjs`, `deshimmer-repro.mjs`, `dom-contract.mjs`, and `link-check.mjs`.
+- Minimal flat paper theme and single-column studio layout, with the new `docs/assets/mark.svg` mark.
 
 ### Changed
-- Refactored monolith scripts into isolated modules (`nasuno.core`, `nasuno.io`, `nasuno.dsp`, `nasuno.detectors`, `nasuno.removers`, `nasuno.optimization`, `nasuno.evaluation`).
-- Replaced direct `print` statements with structured, configurable logging.
-- Hardened all audio processing against NaN, Inf, and floating-point overflow conditions.
+- Rebranded from the upstream fork to AI-Maestro; renamed the engine to `MaestroDSP` and the detector to `CarrierDetector`.
 
-### Removed
-- Removed 19 legacy root scripts and redundant files.
-- Removed all emojis from codebase, comments, logs, and documentation to adhere to strict professional open-source standards.
-
----
-
-## [1.0.0] - 2025-01-15
-
-### Added
-- Initial release of Suno AI audio watermark detection and spectral notch filtering script.
-- Basic ID3 and RIFF chunk metadata stripper.
+### Notes
+- Knob settings carry over from the previous build (the legacy storage key is still read), but uploaded audio must be re-added.

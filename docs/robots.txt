@@ -1,3 +1,3 @@
 User-agent: *
 Allow: /
-Sitemap: https://ai-news-tester.github.io/aim/sitemap.xml
+Sitemap: https://ai-news-tester.github.io/ai-maestro/sitemap.xml

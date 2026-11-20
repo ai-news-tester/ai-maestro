@@ -1,26 +1,7 @@
-__pycache__/
-*.py[cod]
-*$py.class
-*.so
+.claude/
+.playwright-mcp/
+docs/.playwright-mcp/
 
-build/
-dist/
-*.egg-info/
-develop-eggs/
-eggs/
-.eggs/
-
-.pytest_cache/
-.coverage
-.coverage.*
-htmlcov/
-coverage.xml
-.ruff_cache/
-.mypy_cache/
-
-.venv/
-env/
-venv/
 .env
 
 *.wav
