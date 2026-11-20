@@ -627,7 +627,7 @@ async function runAutoMaster() {
     applyAutoReport(report, auto);
     await new Promise((r) => setTimeout(r, 0));
 
-    setAutoProgress('Export: ready - use EXPORT CLEANED WAV');
+    setAutoProgress('Export: ready - use Export WAV');
   } catch (err) {
     console.error('AUTO error:', err);
     if (statusEl) statusEl.textContent = `AUTO failed: ${err.message}`;

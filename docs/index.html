@@ -51,28 +51,19 @@
 </head>
 <body>
 
-  <!-- Background DAW Grid & Ambient Glow -->
-  <div class="daw-background"></div>
-  <div class="ambient-glow"></div>
-
-  <!-- Main Rack Chassis -->
   <main class="rack-wrapper">
 
-    <!-- Top Rack Bar -->
     <header class="rack-top-bar">
       <div class="brand-cluster">
-        <div class="brand-logo-fl" style="overflow: hidden; padding: 0; background: transparent;">
-          <img src="assets/humanized_knob_logo.svg" alt="AI-Maestro logo" width="22" height="22" style="border-radius: 4px; display: block;">
-        </div>
         <div class="brand-text">
           <h1 class="brand-title">AI-Maestro</h1>
-          <span class="brand-subtitle">MEASURE, CLEAN UP AND MASTER IN THE BROWSER</span>
+          <span class="brand-subtitle">Measure, clean up and master in the browser</span>
         </div>
       </div>
 
       <!-- Preset Selector -->
       <div class="preset-chassis">
-        <div class="preset-label">PROFILE</div>
+        <div class="preset-label">Preset</div>
         <div class="preset-selector-box" id="presetSelectorBtn" title="Choose a preset profile">
           <span class="preset-current-name" id="currentPresetName">Standard</span>
           <svg class="preset-arrow-svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="6 9 12 15 18 9"/></svg>
@@ -97,7 +88,7 @@
             <svg class="svg-icon-info" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
           </button>
         </div>
-        <a href="https://github.com/ai-news-tester/aim" target="_blank" rel="noopener noreferrer" class="btn-icon" title="View Source on GitHub">
+        <a href="https://github.com/ai-news-tester/ai-maestro" target="_blank" rel="noopener noreferrer" class="btn-icon" title="View source on GitHub">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
             <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
           </svg>
@@ -105,11 +96,11 @@
       </div>
     </header>
 
-    <!-- Spectrum & Forensic Detection Section -->
+    <!-- Spectrum, transport and measurements -->
     <section class="screen-chassis">
       <div class="screen-header">
         <div class="scope-titles">
-          <span class="panel-tag">REAL-TIME FFT SPECTRUM ANALYZER</span>
+          <span class="panel-tag">Spectrum</span>
           <span class="scope-mode" id="scopeModeLabel">2048-point FFT — slate: original, ochre: processed</span>
         </div>
         <div class="audio-controls">
@@ -125,16 +116,16 @@
           </div>
           <label class="upload-pill" title="Upload your own audio file to test">
             <input type="file" id="userAudioUpload" accept="audio/*">
-            <span>UPLOAD AUDIO</span>
+            <span>Upload audio</span>
           </label>
           <button class="btn-reset-demo" id="resetDemoBtn" style="display: none;" title="Unload custom audio and return to demo track">
-            RESET TO DEMO
+            Reset to demo
           </button>
         </div>
       </div>
 
-      <!-- DAW Audio Playback Seeker / Scrubber Bar -->
-      <div class="playback-seeker-chassis" aria-label="Audio Playback Timeline Scrubber">
+      <!-- Playback position -->
+      <div class="playback-seeker-chassis" aria-label="Playback position">
         <span class="time-readout" id="playbackTimeCurrent">00:00</span>
         <div class="seeker-track-wrapper" id="seekerTrackWrapper" title="Click or drag to scrub playback position">
           <div class="seeker-track-bg"></div>
@@ -144,25 +135,25 @@
         <span class="time-readout total" id="playbackTimeTotal">00:00</span>
       </div>
 
-      <!-- Logarithmic Spectrum Canvas -->
+      <!-- Spectrum canvas -->
       <div class="scope-display-container">
         <canvas id="scopeCanvas" width="1080" height="180"></canvas>
       </div>
 
-      <!-- Real Forensic Detection Readout Panel -->
+      <!-- Measurement readout -->
       <div class="forensic-panel" id="forensicPanel">
         <div class="forensic-panel-header">
           <span class="forensic-panel-title">
             <span class="forensic-indicator"></span>
-            FORENSIC TELEMETRY READOUT
+            Measurements
           </span>
-          <span class="forensic-status-line" id="forensicStatus">Awaiting audio signal...</span>
+          <span class="forensic-status-line" id="forensicStatus">Waiting for audio…</span>
         </div>
 
         <div class="forensic-metrics-grid">
-          <!-- Carrier 1 -->
+          <!-- Tone 15-16 kHz -->
           <div class="metric-card">
-            <span class="metric-title">CARRIER 1 (15–16 kHz)</span>
+            <span class="metric-title">Tone 15–16 kHz</span>
             <span class="metric-val" id="carrier1Freq">15.5 kHz</span>
             <span class="metric-sub" id="carrier1Prom">0.00 dB</span>
             <div class="metric-meter-bar">
@@ -170,9 +161,9 @@
             </div>
           </div>
 
-          <!-- Carrier 2 -->
+          <!-- Tone 17-18 kHz -->
           <div class="metric-card">
-            <span class="metric-title">CARRIER 2 (17–18 kHz)</span>
+            <span class="metric-title">Tone 17–18 kHz</span>
             <span class="metric-val" id="carrier2Freq">17.5 kHz</span>
             <span class="metric-sub" id="carrier2Prom">0.00 dB</span>
             <div class="metric-meter-bar">
@@ -180,9 +171,9 @@
             </div>
           </div>
 
-          <!-- Carrier 3 -->
+          <!-- Tone 19-20 kHz -->
           <div class="metric-card">
-            <span class="metric-title">CARRIER 3 (19–20 kHz)</span>
+            <span class="metric-title">Tone 19–20 kHz</span>
             <span class="metric-val" id="carrier3Freq">19.5 kHz</span>
             <span class="metric-sub" id="carrier3Prom">0.00 dB</span>
             <div class="metric-meter-bar">
@@ -190,9 +181,9 @@
             </div>
           </div>
 
-          <!-- Cepstral Echo -->
+          <!-- Echo delay -->
           <div class="metric-card">
-            <span class="metric-title">CEPSTRAL ECHO</span>
+            <span class="metric-title">Echo delay</span>
             <span class="metric-val" id="echoDelay">None</span>
             <span class="metric-sub" id="echoScore">MAD 0.00</span>
             <div class="metric-meter-bar">
@@ -202,14 +193,14 @@
 
           <!-- Spectral Flatness -->
           <div class="metric-card">
-            <span class="metric-title">SPECTRAL FLATNESS</span>
+            <span class="metric-title">Spectral flatness</span>
             <span class="metric-val" id="valFlatness">0.0000</span>
             <span class="metric-sub" id="valCrest">Crest 0.0 dB</span>
           </div>
 
           <!-- Dynamics -->
           <div class="metric-card">
-            <span class="metric-title">DYNAMIC RANGE</span>
+            <span class="metric-title">Dynamic range</span>
             <span class="metric-val" id="valPeak">-∞ dBFS</span>
             <span class="metric-sub" id="valRms">RMS -∞ dBFS</span>
           </div>
@@ -217,19 +208,19 @@
       </div>
     </section>
 
-    <!-- Panel View Containers (Dynamically populated by registry.js) -->
+    <!-- Controls, populated by registry.js -->
     <section class="rack-panel-view active" id="evasionPanel" data-panel-view="evasion"></section>
 
-    <!-- AUTO Mode: detect, clean, master, export with no knobs -->
+    <!-- AUTO: detect, clean, master, export -->
     <section class="auto-panel" id="autoPanel">
       <div class="auto-controls">
         <button class="btn-auto" id="autoBtn" title="Detect, clean, master and export to Spotify target">
-          <span>AUTO MASTER</span>
+          <span>Auto master</span>
         </button>
         <span class="auto-progress" id="autoProgress">Idle</span>
       </div>
       <div class="auto-target-row">
-        <label for="autoTargetLUFS" class="auto-target-label">TARGET</label>
+        <label for="autoTargetLUFS" class="auto-target-label">Target</label>
         <select class="auto-target-select" id="autoTargetLUFS">
           <option value="-14" selected>Streaming -14 LUFS</option>
           <option value="-12">Loud -12 LUFS</option>
@@ -239,19 +230,19 @@
       <div class="auto-issues" id="autoIssues"></div>
     </section>
 
-    <!-- Action & Export Bar -->
+    <!-- Export and A/B -->
     <footer class="action-export-bar">
       <div class="export-cluster">
         <button class="btn-export" id="exportWavBtn" title="Export processed audio as 16-bit PCM WAV">
           <svg class="btn-svg" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-          <span>EXPORT CLEANED WAV</span>
+          <span>Export WAV</span>
         </button>
         <span class="export-status" id="exportStatus">Ready</span>
       </div>
       <div class="ab-cluster">
-        <button class="btn-ab" id="playOriginalBtn" title="Play the original, unprocessed audio">PLAY ORIGINAL</button>
-        <button class="btn-ab" id="playAutoBtn" title="Play the AUTO-mastered result">PLAY AUTO</button>
-        <button class="btn-ab" id="revertManualBtn" title="Revert to the last manual preset">REVERT TO MANUAL</button>
+        <button class="btn-ab" id="playOriginalBtn" title="Play the original, unprocessed audio">Play original</button>
+        <button class="btn-ab" id="playAutoBtn" title="Play the auto-mastered result">Play auto</button>
+        <button class="btn-ab" id="revertManualBtn" title="Revert to the last manual preset">Revert to manual</button>
       </div>
     </footer>
 
@@ -262,7 +253,7 @@
   <div class="info-popover" id="infoPopover" role="dialog" aria-modal="true">
     <div class="popover-header">
       <div class="popover-title-row">
-        <span class="popover-title" id="popoverTitle">Vector Information</span>
+        <span class="popover-title" id="popoverTitle">About this control</span>
         <span class="popover-badge" id="popoverBadge">MODULE</span>
       </div>
       <button class="popover-close" id="popoverCloseBtn" aria-label="Close">
