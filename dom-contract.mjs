@@ -153,10 +153,22 @@ check('5 no banned branding', () => {
   console.log(`  ${targets.length} files clean`);
 });
 
+// ---- 6. Minimal flat theme: no glow, no dead markup, palette token present ----
+check('6 flat theme, no glow', () => {
+  assert.ok(!/box-shadow:[^;]*(glow|rgba\(0, 229, 255)|radial-gradient/i.test(css),
+    'docs/style.css still has a glow box-shadow or radial-gradient — flat theme only.');
+  assert.ok(!css.includes('.daw-background'),
+    'docs/style.css still defines .daw-background — dead markup must be removed.');
+  assert.ok(!css.includes('.ambient-glow'),
+    'docs/style.css still defines .ambient-glow — dead markup must be removed.');
+  assert.ok(css.includes('--paper: #f7f6f3'),
+    'docs/style.css is missing the palette token `--paper: #f7f6f3` in :root.');
+});
+
 if (failures.length) {
-  console.log(`\nCONTRACT FAIL (${failures.length} of 5):`);
+  console.log(`\nCONTRACT FAIL (${failures.length} of 6):`);
   failures.forEach((f) => console.log(`- ${f.split('\n')[0]}`));
   process.exitCode = 1;
 } else {
-  console.log('\nCONTRACT PASS (5 of 5)');
+  console.log('\nCONTRACT PASS (6 of 6)');
 }

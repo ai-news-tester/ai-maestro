@@ -160,7 +160,7 @@ export class SpectrumRenderer {
   drawAutoIssues(ctx, width, height) {
     if (!this.autoIssues || !this.autoIssues.length) return;
     ctx.save();
-    ctx.font = '700 8.5px "JetBrains Mono", monospace';
+    ctx.font = '700 8.5px ui-monospace, Menlo, Consolas, monospace';
     ctx.textAlign = 'left';
     let row = 0;
     for (const issue of this.autoIssues) {
@@ -217,14 +217,14 @@ export class SpectrumRenderer {
     const isPlaying = this.getIsPlaying();
 
     // 1. Clear background
-    ctx.fillStyle = '#090b0e';
+    ctx.fillStyle = '#ffffff';
     ctx.fillRect(0, 0, width, height);
 
     // 2. Horizontal dB grid lines
     ctx.lineWidth = 1;
-    ctx.strokeStyle = '#181e26';
-    ctx.fillStyle = '#4a5362';
-    ctx.font = '9px "JetBrains Mono", monospace';
+    ctx.strokeStyle = '#e2dfd9';
+    ctx.fillStyle = '#6f6b64';
+    ctx.font = '9px ui-monospace, Menlo, Consolas, monospace';
     ctx.textAlign = 'left';
 
     const dbTicks = [0, -20, -40, -60, -80];
@@ -270,10 +270,10 @@ export class SpectrumRenderer {
     for (const b of carrierBands) {
       const xLo = this.freqToX(b.lo, width);
       const xHi = this.freqToX(b.hi, width);
-      ctx.fillStyle = 'rgba(255, 118, 25, 0.06)';
+      ctx.fillStyle = 'rgba(138, 90, 43, 0.06)';
       ctx.fillRect(xLo, 0, xHi - xLo, height);
 
-      ctx.strokeStyle = 'rgba(255, 118, 25, 0.25)';
+      ctx.strokeStyle = 'rgba(138, 90, 43, 0.25)';
       ctx.setLineDash([2, 4]);
       ctx.beginPath();
       ctx.moveTo((xLo + xHi) / 2, 0);
@@ -295,7 +295,7 @@ export class SpectrumRenderer {
         this.rawFreqData = new Float32Array(binCount);
       }
 
-      // --- TRACE A: FADED AI ORIGINAL SPECTRUM (RAW PRE-DSP - GLOWING BLUE) ---
+      // --- TRACE A: FADED SLATE ORIGINAL SPECTRUM (RAW PRE-DSP) ---
       if (dsp.rawAnalyser) {
         dsp.rawAnalyser.getFloatFrequencyData(this.rawFreqData);
         const rawPoints = this.calculatePoints(this.rawFreqData, binCount, sr, width, height);
@@ -309,15 +309,15 @@ export class SpectrumRenderer {
         ctx.lineTo(width, height);
         ctx.closePath();
         const rawGrad = ctx.createLinearGradient(0, 0, 0, height);
-        rawGrad.addColorStop(0, 'rgba(0, 229, 255, 0.15)');
-        rawGrad.addColorStop(0.5, 'rgba(0, 229, 255, 0.04)');
-        rawGrad.addColorStop(1, 'rgba(0, 229, 255, 0.0)');
+        rawGrad.addColorStop(0, 'rgba(47, 72, 88, 0.15)');
+        rawGrad.addColorStop(0.5, 'rgba(47, 72, 88, 0.04)');
+        rawGrad.addColorStop(1, 'rgba(47, 72, 88, 0.0)');
         ctx.fillStyle = rawGrad;
         ctx.fill();
 
         // Faded Cyan Dashed Reference Stroke (AI Raw)
         ctx.lineWidth = 1.3;
-        ctx.strokeStyle = 'rgba(0, 229, 255, 0.65)';
+        ctx.strokeStyle = 'rgba(47, 72, 88, 0.65)';
         ctx.setLineDash([4, 3]);
         ctx.beginPath();
         for (let i = 0; i < rawPoints.length; i++) {
@@ -328,7 +328,7 @@ export class SpectrumRenderer {
         ctx.setLineDash([]);
       }
 
-      // --- TRACE B: VIVID ORANGE HUMANIZED SPECTRUM (POST-DSP - GLOWING ORANGE) ---
+      // --- TRACE B: OCHRE PROCESSED SPECTRUM (POST-DSP) ---
       if (dsp.analyser) {
         dsp.analyser.getFloatFrequencyData(this.procFreqData);
         const procPoints = this.calculatePoints(this.procFreqData, binCount, sr, width, height);
@@ -342,38 +342,35 @@ export class SpectrumRenderer {
         ctx.lineTo(width, height);
         ctx.closePath();
         const procGrad = ctx.createLinearGradient(0, 0, 0, height);
-        procGrad.addColorStop(0, 'rgba(255, 122, 0, 0.35)');
-        procGrad.addColorStop(0.5, 'rgba(255, 122, 0, 0.10)');
-        procGrad.addColorStop(1, 'rgba(255, 122, 0, 0.0)');
+        procGrad.addColorStop(0, 'rgba(138, 90, 43, 0.35)');
+        procGrad.addColorStop(0.5, 'rgba(138, 90, 43, 0.10)');
+        procGrad.addColorStop(1, 'rgba(138, 90, 43, 0.0)');
         ctx.fillStyle = procGrad;
         ctx.fill();
 
         // Solid Vivid Orange High-Resolution Hairline Curve (Humanized)
         ctx.lineWidth = 1.8;
-        ctx.strokeStyle = '#ff7a00';
-        ctx.shadowColor = '#ff7a00';
-        ctx.shadowBlur = 8;
+        ctx.strokeStyle = '#8a5a2b';
         ctx.beginPath();
         for (let i = 0; i < procPoints.length; i++) {
           if (i === 0) ctx.moveTo(procPoints[i].x, procPoints[i].y);
           else ctx.lineTo(procPoints[i].x, procPoints[i].y);
         }
         ctx.stroke();
-        ctx.shadowBlur = 0;
       }
 
       // --- HUD DUAL-TRACE OVERLAY LEGEND ---
       const legX = width - 12;
       ctx.textAlign = 'right';
-      ctx.font = '700 8.5px "JetBrains Mono", monospace';
+      ctx.font = '700 8.5px ui-monospace, Menlo, Consolas, monospace';
 
       // AI Raw Legend (Blue)
-      ctx.fillStyle = 'rgba(0, 229, 255, 0.75)';
-      ctx.fillText('┄┄ AI ORIGINAL (RAW INPUT)', legX, 16);
+      ctx.fillStyle = 'rgba(47, 72, 88, 0.75)';
+      ctx.fillText('┄┄ Original', legX, 16);
 
       // Humanized Output Legend (Orange)
-      ctx.fillStyle = '#ff7a00';
-      ctx.fillText('── HUMANIZED (OUTPUT)', legX, 28);
+      ctx.fillStyle = '#8a5a2b';
+      ctx.fillText('── Processed', legX, 28);
 
     } else {
       // Idle state: dual clean baselines
@@ -381,7 +378,7 @@ export class SpectrumRenderer {
       const procBaselineY = this.dbToY(-95, height);
 
       // Faded cyan AI ghost baseline
-      ctx.strokeStyle = 'rgba(0, 229, 255, 0.25)';
+      ctx.strokeStyle = 'rgba(47, 72, 88, 0.25)';
       ctx.lineWidth = 1;
       ctx.setLineDash([4, 3]);
       ctx.beginPath();
@@ -391,7 +388,7 @@ export class SpectrumRenderer {
       ctx.setLineDash([]);
 
       // Orange Humanized baseline
-      ctx.strokeStyle = 'rgba(255, 122, 0, 0.35)';
+      ctx.strokeStyle = 'rgba(138, 90, 43, 0.35)';
       ctx.lineWidth = 1;
       ctx.beginPath();
       ctx.moveTo(0, procBaselineY);
@@ -401,11 +398,11 @@ export class SpectrumRenderer {
       // Idle HUD Legend
       const legX = width - 12;
       ctx.textAlign = 'right';
-      ctx.font = '700 8.5px "JetBrains Mono", monospace';
-      ctx.fillStyle = 'rgba(0, 229, 255, 0.5)';
-      ctx.fillText('┄┄ AI ORIGINAL (RAW INPUT)', legX, 16);
-      ctx.fillStyle = 'rgba(255, 122, 0, 0.6)';
-      ctx.fillText('── HUMANIZED (OUTPUT)', legX, 28);
+      ctx.font = '700 8.5px ui-monospace, Menlo, Consolas, monospace';
+      ctx.fillStyle = 'rgba(47, 72, 88, 0.5)';
+      ctx.fillText('┄┄ Original', legX, 16);
+      ctx.fillStyle = 'rgba(138, 90, 43, 0.6)';
+      ctx.fillText('── Processed', legX, 28);
     }
 
     // Persistent AUTO issue bands (visible even when not playing)
