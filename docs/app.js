@@ -5,7 +5,7 @@
  */
 
 import { CarrierDetector, StegoDetector, SpectralAnalyzer } from './modules/analyzer.js';
-import { MaestroDSP } from './modules/dsp.js?v=9'; // shortcut: manual ?v= cache-bust, bump when dsp.js changes
+import { MaestroDSP } from './modules/dsp.js?v=10'; // shortcut: manual ?v= cache-bust, bump when dsp.js changes
 import { mapAutoReport } from './modules/auto.js';
 import { SpectrumRenderer, buildAutoIssues } from './modules/spectrum.js';
 import { UIController } from './modules/ui.js';
@@ -871,7 +871,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         persistCurrentSettings();
         updatePlayButtonUI(isPlaying);
         if (scopeModeLabel) {
-          scopeModeLabel.textContent = '2048-POINT FFT • DUAL-TRACE OVERLAY (ORANGE GHOST: ORIGINAL • CYAN: LIVE EVASION)';
+          scopeModeLabel.textContent = '2048-point FFT — slate: original, ochre: processed';
         }
         currentTrackType = 'cleaned';
         loadAudioFile('audio/demo_original.wav');
@@ -915,7 +915,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           persistCurrentSettings();
 
           if (scopeModeLabel) {
-            scopeModeLabel.textContent = '2048-POINT FFT • DUAL-TRACE OVERLAY (ORANGE GHOST: ORIGINAL AUDIO • CYAN: PROCESSED AUDIO)';
+            scopeModeLabel.textContent = '2048-point FFT — slate: original, ochre: processed';
           }
 
           runForensicAnalysis(currentBuffer);
@@ -1000,7 +1000,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         syncPillsWithAudioState(isBypassed);
 
         if (scopeModeLabel) {
-          scopeModeLabel.textContent = '2048-POINT FFT • DUAL-TRACE OVERLAY (ORANGE GHOST: ORIGINAL AUDIO • CYAN: PROCESSED AUDIO)';
+          scopeModeLabel.textContent = '2048-point FFT — slate: original, ochre: processed';
         }
 
         runForensicAnalysis(currentBuffer);
