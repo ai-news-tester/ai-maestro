@@ -5,8 +5,8 @@
  */
 
 // Read-once fallback so a session saved under the pre-rebrand key is not lost.
-// Split literal: the value must stay byte-exact, but the branding gate scans this file.
-const LEGACY_SETTINGS_KEY = 'nas' + 'uno_engine_settings_v3';
+// Gate exemption: this key must stay byte-exact for existing users' saved settings.
+const LEGACY_SETTINGS_KEY = 'nasuno_engine_settings_v3';
 const SETTINGS_KEY = 'maestro_settings_v1';
 const DB_NAME = 'MaestroAudioDB';
 const DB_VERSION = 1;

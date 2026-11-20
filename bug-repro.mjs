@@ -1,8 +1,10 @@
 globalThis.window = { addEventListener() {} };
 globalThis.document = { getElementById: () => null };
+import assert from 'node:assert/strict';
 import { SpectralAnalyzer } from './docs/modules/analyzer.js';
 import { FLKnob } from './docs/modules/knob.js';
 import { MaestroDSP } from './docs/modules/dsp.js';
+import { PersistenceManager } from './docs/modules/storage.js';
 
 // 1. Silent track: crest should not be NaN
 const silent = new Float32Array(16384);
@@ -57,3 +59,33 @@ const rKnob = new FLKnob(makeEl(), { knobId: 'bandwidthHeal', min: -6, max: 6, s
 rKnob.setValue(0.3, false, rKnob.fineStep());
 console.log('restore fine 0.3 ->', rKnob.val, 'expected 0.3');
 console.log('BUG restore loses fine value?', rKnob.val !== 0.3);
+
+// 7. Settings migration: saved knobs under the pre-rebrand key must survive the rename.
+const LEGACY = 'nasuno_engine_settings_v3';
+const NEW = 'maestro_settings_v1';
+function stubStorage(seed = {}) {
+  const store = { ...seed };
+  globalThis.localStorage = {
+    getItem: (k) => (k in store ? store[k] : null),
+    setItem: (k, v) => { store[k] = String(v); },
+    removeItem: (k) => { delete store[k]; },
+  };
+  return store;
+}
+const legacyPayload = { knobs: { qualityGate: 4.2 }, preset: 'standard', bypass: false };
+const newPayload = { knobs: { qualityGate: 1.5 }, preset: 'gentle', bypass: true };
+
+stubStorage({ [LEGACY]: JSON.stringify(legacyPayload) });
+assert.deepEqual(PersistenceManager.loadSettings(), legacyPayload, 'legacy-only session lost its saved knobs');
+
+stubStorage({ [LEGACY]: JSON.stringify(legacyPayload), [NEW]: JSON.stringify(newPayload) });
+assert.deepEqual(PersistenceManager.loadSettings(), newPayload, 'new key must win over the legacy key');
+
+stubStorage();
+assert.equal(PersistenceManager.loadSettings(), null, 'empty store must load null');
+
+const saved = stubStorage();
+PersistenceManager.saveSettings(newPayload);
+assert.equal(saved[NEW], JSON.stringify(newPayload), 'saveSettings did not write the new key');
+assert.ok(!(LEGACY in saved), 'saveSettings must never write the legacy key');
+console.log('Storage fallback: PASS');

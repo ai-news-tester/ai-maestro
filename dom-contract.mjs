@@ -134,10 +134,15 @@ check('5 no banned branding', () => {
       .filter((f) => f.endsWith('.js')).map((f) => `docs/modules/${f}`),
   ];
   const hits = [];
+  // One deliberate exemption: the legacy LocalStorage key must stay byte-exact so an
+  // existing user's saved knobs still load after the rename. Only that exact declaration
+  // line in storage.js is allowed to carry the old brand — nothing else, nowhere else.
+  const LEGACY_KEY_LINE = /^const LEGACY_SETTINGS_KEY = 'nasuno_engine_settings_v3';\s*$/;
   for (const file of targets) {
     const lines = read(`./${file}`).split('\n');
     const found = [];
     lines.forEach((line, i) => {
+      if (file === 'docs/modules/storage.js' && LEGACY_KEY_LINE.test(line)) return;
       for (const m of line.matchAll(BANNED)) found.push(`${m[0]}@L${i + 1}`);
     });
     if (found.length) hits.push(`${file} (${found.length}): ${found.join(', ')}`);
