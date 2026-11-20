@@ -1,8 +1,8 @@
 blank_issues_enabled: false
 contact_links:
   - name: GitHub Discussions
-    url: https://github.com/ai-news-tester/aim/discussions
-    about: Ask questions, share audio samples, and discuss ideas.
+    url: https://github.com/ai-news-tester/ai-maestro/discussions
+    about: Ask questions, share results, and discuss ideas.
   - name: Security Vulnerability Disclosure
-    url: https://github.com/ai-news-tester/aim/security/policy
+    url: https://github.com/ai-news-tester/ai-maestro/security/advisories/new
     about: Report security-sensitive issues privately.
