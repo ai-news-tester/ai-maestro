@@ -1,45 +1,45 @@
 /**
- * NaSuno Real-Time DSP Processing Engine & Offline Lossless WAV Exporter
+ * AI-Maestro Real-Time DSP Processing Engine & Offline Lossless WAV Exporter
  * Implements a complete 14-node Web Audio processing cascade:
- *  1. Stride Comb Disrupter (172.3 Hz neural frame harmonics)
- *  2. Stego Strip (cepstral echo cancellation & micro-decorrelation)
- *  3. Ultrasonic Carrier Notches (15.5k, 17.5k, 19.5k surgical IIR filters)
- *  4. Neural Scrub (dynamic high-frequency residual attenuation)
- *  5. Spectral Blend (Mel-domain resonant peak smoothing)
- *  6. Phase Scatter (3-stage all-pass phase dispersion network)
- *  7. Stat Normalize (polynomial soft-knee kurtosis shaper)
- *  8. Hash Break (anti-AcoustID micro-warp delay modulation LFO)
- *  9. Room Inject (multi-tap early reflection acoustic space network)
- * 10. Texture Inject (analog harmonic tape/tube saturation exciter)
- * 11. Bandwidth Heal (high-shelf air band restoration EQ)
- * 12. Dynamics Naturalizer (studio feed-forward compressor)
- * 13. Quality Gate (psychoacoustic brickwall safety limiter)
+ *  1. Stride Remove (peaking cuts at 172.3 / 344.6 Hz)
+ *  2. Stego Strip (peaking cut at 3800 Hz)
+ *  3. Carrier Notches (15.5k, 17.5k, 19.5k biquad notch filters)
+ *  4. Neural Scrub (high-shelf, corner slides 19 -> 11 kHz)
+ *  5. Spectral Blend (peaking cuts at 4200 / 7600 Hz)
+ *  6. Phase Scatter (3-stage all-pass network at 850 / 2400 / 6800 Hz)
+ *  7. Stat Normalize (soft-knee waveshaper, unity-peak normalized)
+ *  8. Hash Break (sine LFO modulating a 3 ms delay)
+ *  9. Room Inject (two delay taps at 16 / 31 ms through a lowpass)
+ * 10. Texture Inject (asymmetric tanh saturation waveshaper)
+ * 11. Bandwidth Heal (12 kHz high-shelf air EQ)
+ * 12. Dynamics Naturalizer (feed-forward compressor)
+ * 13. Quality Gate (20:1 safety limiter)
  * 14. Master Gain Staging & A/B Dry/Wet click-free bypass
  */
 
 import { SIBILANCE_THRESHOLD } from './auto.js';
 import { SpectralAnalyzer } from './analyzer.js';
 
-export class NaSunoDSP {
+export class MaestroDSP {
   constructor() {
     this.ctx = null;
     this.source = null;
     this.destination = null;
     this.isBypassed = false;
 
-    // 1. Stride Remove (172.3 Hz neural frame rate comb filter)
+    // 1. Stride Remove (peaking cuts at 172.3 Hz & 344.6 Hz)
     this.stride1 = null;
     this.stride2 = null;
 
-    // 2. Stego Strip (cepstral echo cancellation)
+    // 2. Stego Strip (peaking cut at 3800 Hz)
     this.stegoComb = null;
 
-    // 3. Ultrasonic Carrier Notches (15.5k, 17.5k, 19.5k)
+    // 3. Carrier Notches (15.5k, 17.5k, 19.5k)
     this.notch1 = null;
     this.notch2 = null;
     this.notch3 = null;
 
-    // 4. Neural Scrub (high-frequency residual filter)
+    // 4. Neural Scrub (high-shelf, corner slides 19 -> 11 kHz)
     this.neuralFilter = null;
 
     // Deshimmer (HF shelf at 10 kHz)
@@ -53,7 +53,7 @@ export class NaSunoDSP {
     this.truePeakLimiter = null;
     this.chain = null;
 
-    // 5. Spectral Blend (Mel-domain resonant peak smoother)
+    // 5. Spectral Blend (peaking cuts at 4200 Hz & 7600 Hz)
     this.blendFilter1 = null;
     this.blendFilter2 = null;
 
@@ -62,15 +62,15 @@ export class NaSunoDSP {
     this.allpass2 = null;
     this.allpass3 = null;
 
-    // 7. Stat Normalize (polynomial wave shaper)
+    // 7. Stat Normalize (soft-knee waveshaper)
     this.statShaper = null;
 
-    // 8. Hash Break (anti-AcoustID micro-warp delay + LFO)
+    // 8. Hash Break (3 ms delay modulated by a sine LFO)
     this.hashDelay = null;
     this.hashLfo = null;
     this.hashLfoGain = null;
 
-    // 9. Room Inject (multi-tap early reflection network)
+    // 9. Room Inject (two delay taps at 16 ms & 31 ms)
     this.roomSend = null;
     this.roomDelay1 = null;
     this.roomDelay2 = null;
@@ -95,7 +95,7 @@ export class NaSunoDSP {
     this.wetGain = null;
     this.dryGain = null;
     this.rawAnalyser = null; // Pre-DSP raw audio analyser (faded ghost trace)
-    this.analyser = null;    // Post-DSP active evasion analyser (vivid cyan trace)
+    this.analyser = null;    // Post-DSP processed analyser (vivid cyan trace)
 
     // Cache of active parameters
     this.params = {
@@ -118,7 +118,7 @@ export class NaSunoDSP {
   }
 
   /**
-   * Generate static polynomial waveshaper curve for soft-knee normalization.
+   * Generate static soft-knee waveshaper curve for peak normalization.
    * Includes peak unity normalization factor to eliminate gain-staging drop and limiter pumping.
    */
   static makeStatCurve(amount = 0.4, n = 2048) {
@@ -226,7 +226,7 @@ export class NaSunoDSP {
     const allpass2 = makeFilter('allpass2', 'allpass', 2400, 0.8 + 8 * (p.phaseScatter / 100));
     const allpass3 = makeFilter('allpass3', 'allpass', 6800, 1 + 8.5 * (p.phaseScatter / 100));
     const statShaper = nodes.statShaper || ctx.createWaveShaper(); nodes.statShaper = statShaper;
-    statShaper.curve = NaSunoDSP.makeStatCurve(p.statNormalize / 100); statShaper.oversample = '2x';
+    statShaper.curve = MaestroDSP.makeStatCurve(p.statNormalize / 100); statShaper.oversample = '2x';
     const hashDelay = nodes.hashDelay || ctx.createDelay(0.05); nodes.hashDelay = hashDelay;
     set(hashDelay.delayTime, 0.003);
     const hashLfo = nodes.hashLfo || ctx.createOscillator(); nodes.hashLfo = hashLfo;
@@ -242,7 +242,7 @@ export class NaSunoDSP {
     const roomReturn = nodes.roomReturn || ctx.createGain(); nodes.roomReturn = roomReturn; set(roomReturn.gain, 0.25 * (p.roomInject / 100));
     const roomMixBus = nodes.roomMixBus || ctx.createGain(); nodes.roomMixBus = roomMixBus; set(roomMixBus.gain, 1.0);
     const textureShaper = nodes.textureShaper || ctx.createWaveShaper(); nodes.textureShaper = textureShaper;
-    textureShaper.curve = NaSunoDSP.makeTextureCurve(p.textureInject / 100); textureShaper.oversample = '2x';
+    textureShaper.curve = MaestroDSP.makeTextureCurve(p.textureInject / 100); textureShaper.oversample = '2x';
     const shelf = makeFilter('shelf', 'highshelf', 12000, 0.7, p.bandwidthHeal);
     const glueComp = nodes.dynamicsComp || ctx.createDynamicsCompressor(); nodes.dynamicsComp = glueComp;
     const crest = Number.isFinite(p.crestFactorDB) ? p.crestFactorDB : 12;
@@ -259,7 +259,7 @@ export class NaSunoDSP {
     const tpLimiter = nodes.truePeakLimiter || ctx.createDynamicsCompressor(); nodes.truePeakLimiter = tpLimiter;
     set(tpLimiter.threshold, -1); set(tpLimiter.knee, 0); set(tpLimiter.ratio, 20); set(tpLimiter.attack, 0.001); set(tpLimiter.release, 0.05);
     const ceiling = nodes.ceiling || ctx.createWaveShaper(); nodes.ceiling = ceiling;
-    ceiling.curve = NaSunoDSP.makeCeilingCurve(); ceiling.oversample = '4x';
+    ceiling.curve = MaestroDSP.makeCeilingCurve(); ceiling.oversample = '4x';
     // AUTO trim: calibrated from a measured render so live matches export.
     const trimGain = nodes.trimGain || ctx.createGain(); nodes.trimGain = trimGain;
     const trimDb = Number.isFinite(p.autoTrimDb) ? Math.min(0, p.autoTrimDb) : 0;
@@ -281,7 +281,7 @@ export class NaSunoDSP {
     this.ctx = ctx;
     const now = ctx.currentTime;
 
-    // 1. Stride Remove (172.3 Hz & 344.6 Hz periodic frame harmonic notches - safe high-fidelity cut)
+    // 1. Stride Remove (peaking cuts at 172.3 Hz & 344.6 Hz - safe high-fidelity cut)
     this.stride1 = ctx.createBiquadFilter();
     this.stride1.type = 'peaking';
     this.stride1.frequency.setValueAtTime(172.3, now);
@@ -294,14 +294,14 @@ export class NaSunoDSP {
     this.stride2.Q.setValueAtTime(7.0, now);
     this.stride2.gain.setValueAtTime(-2.45, now);
 
-    // 2. Stego Strip (Cepstral echo filter at 3800 Hz)
+    // 2. Stego Strip (peaking cut at 3800 Hz)
     this.stegoComb = ctx.createBiquadFilter();
     this.stegoComb.type = 'peaking';
     this.stegoComb.frequency.setValueAtTime(3800, now);
     this.stegoComb.Q.setValueAtTime(3.0, now);
     this.stegoComb.gain.setValueAtTime(-3.6, now);
 
-    // 3. Ultrasonic Carrier Notches (15.5k, 17.5k, 19.5k)
+    // 3. Carrier Notches (15.5k, 17.5k, 19.5k)
     this.notch1 = ctx.createBiquadFilter();
     this.notch1.type = 'notch';
     this.notch1.frequency.setValueAtTime(15500, now);
@@ -317,7 +317,7 @@ export class NaSunoDSP {
     this.notch3.frequency.setValueAtTime(19500, now);
     this.notch3.Q.setValueAtTime(12.0, now);
 
-    // 4. Neural Scrub (high-frequency residual filter calibrated to preserve musical air)
+    // 4. Neural Scrub (high-shelf calibrated to preserve musical air)
     this.neuralFilter = ctx.createBiquadFilter();
     this.neuralFilter.type = 'highshelf';
     this.neuralFilter.frequency.setValueAtTime(15400, now);
@@ -330,7 +330,7 @@ export class NaSunoDSP {
     this.deshimmerShelf.Q.setValueAtTime(0.7, now);
     this.deshimmerShelf.gain.setValueAtTime(0, now);
 
-    // 5. Spectral Blend (Mel-domain resonant peak smoother)
+    // 5. Spectral Blend (peaking cuts at 4200 Hz & 7600 Hz)
     this.blendFilter1 = ctx.createBiquadFilter();
     this.blendFilter1.type = 'peaking';
     this.blendFilter1.frequency.setValueAtTime(4200, now);
@@ -359,12 +359,12 @@ export class NaSunoDSP {
     this.allpass3.frequency.setValueAtTime(6800, now);
     this.allpass3.Q.setValueAtTime(2.6, now);
 
-    // 7. Stat Normalize (polynomial wave shaper)
+    // 7. Stat Normalize (soft-knee waveshaper)
     this.statShaper = ctx.createWaveShaper();
-    this.statShaper.curve = NaSunoDSP.makeStatCurve(0.4);
+    this.statShaper.curve = MaestroDSP.makeStatCurve(0.4);
     this.statShaper.oversample = '2x';
 
-    // 8. Hash Break (anti-AcoustID micro-warp delay + subtle LFO)
+    // 8. Hash Break (3 ms delay modulated by a subtle sine LFO)
     this.hashDelay = ctx.createDelay(0.05);
     this.hashDelay.delayTime.setValueAtTime(0.003, now);
 
@@ -381,7 +381,7 @@ export class NaSunoDSP {
       this.hashLfo.start(now);
     } catch (_) {}
 
-    // 9. Room Inject (multi-tap early reflection acoustic space network - subtle room ambiance)
+    // 9. Room Inject (two early delay taps - subtle room ambiance)
     this.roomSend = ctx.createGain();
     this.roomSend.gain.setValueAtTime(1.0, now);
 
@@ -403,7 +403,7 @@ export class NaSunoDSP {
 
     // 10. Texture Inject (analog harmonic tape/tube saturation exciter)
     this.textureShaper = ctx.createWaveShaper();
-    this.textureShaper.curve = NaSunoDSP.makeTextureCurve(0.35);
+    this.textureShaper.curve = MaestroDSP.makeTextureCurve(0.35);
     this.textureShaper.oversample = '2x';
 
     // 11. Bandwidth Heal (air-band high shelf)
@@ -448,7 +448,7 @@ export class NaSunoDSP {
     this.analyser.smoothingTimeConstant = 0.8;
 
     // Build the shared mastering chain on the live nodes (connect() rebuilds it with current params).
-    this.chain = NaSunoDSP.buildMasterChain(ctx, this.params, this);
+    this.chain = MaestroDSP.buildMasterChain(ctx, this.params, this);
   }
 
   /**
@@ -459,7 +459,7 @@ export class NaSunoDSP {
   connect(sourceNode, destinationNode) {
     this.source = sourceNode;
     this.destination = destinationNode;
-    this.chain = NaSunoDSP.buildMasterChain(this.ctx, this.params, this);
+    this.chain = MaestroDSP.buildMasterChain(this.ctx, this.params, this);
     sourceNode.connect(this.rawAnalyser);
     sourceNode.connect(this.chain.input);
     this.chain.output.connect(this.wetGain);
@@ -505,7 +505,7 @@ export class NaSunoDSP {
       }
       case 'stegoStrip': {
         const norm = val / 100;
-        // De-echo comb cut calibrated from 0 dB down to -8 dB (preserves ear-canal resonance presence)
+        // Peaking cut calibrated from 0 dB down to -8 dB (preserves presence)
         const cut = 0.0 - 8.0 * norm;
         if (this.stegoComb) this.stegoComb.gain.setTargetAtTime(cut, now, ramp);
         break;
@@ -525,7 +525,7 @@ export class NaSunoDSP {
       case 'spectralBlend': {
         const eff = Math.min(100, val + 0.15 * (this.params.deshimmer || 0));
         const norm = eff / 100;
-        // Resonant peak cuts from 0 dB down to -6 dB and -7 dB (smooths unnatural Mel spikes without scooping)
+        // Resonant peak cuts from 0 dB down to -6 dB and -7 dB (tames harsh peaks without scooping)
         const cut1 = 0.0 - 6.0 * norm;
         const cut2 = 0.0 - 7.0 * norm;
         if (this.blendFilter1) this.blendFilter1.gain.setTargetAtTime(cut1, now, ramp);
@@ -552,8 +552,8 @@ export class NaSunoDSP {
       case 'statNormalize': {
         const norm = val / 100;
         if (this.statShaper) {
-          // Polynomial wave shaper saturation amount with unity peak normalization
-          this.statShaper.curve = NaSunoDSP.makeStatCurve(norm);
+          // Soft-knee saturation amount with unity peak normalization
+          this.statShaper.curve = MaestroDSP.makeStatCurve(norm);
         }
         break;
       }
@@ -577,7 +577,7 @@ export class NaSunoDSP {
         const norm = val / 100;
         if (this.textureShaper) {
           // Drive scales for warm analog saturation
-          this.textureShaper.curve = NaSunoDSP.makeTextureCurve(norm);
+          this.textureShaper.curve = MaestroDSP.makeTextureCurve(norm);
         }
         break;
       }
@@ -699,7 +699,7 @@ export class NaSunoDSP {
     const offlineCtx = new OfflineAudioContext(audioBuffer.numberOfChannels, audioBuffer.length, audioBuffer.sampleRate);
     const source = offlineCtx.createBufferSource();
     source.buffer = audioBuffer;
-    const chain = NaSunoDSP.buildMasterChain(offlineCtx, params);
+    const chain = MaestroDSP.buildMasterChain(offlineCtx, params);
     source.connect(chain.input);
     chain.output.connect(offlineCtx.destination);
     source.start(0);
@@ -722,8 +722,8 @@ export class NaSunoDSP {
     if (!Number.isFinite(params.autoTrimDb) && Number.isFinite(params.integratedLUFS)) {
       try {
         const measured = this.measureRender(renderedBuffer);
-        const correction = NaSunoDSP.correctionGainDb(measured.integratedLUFS, measured.truePeakDBTP, Number.isFinite(params.targetLUFS) ? params.targetLUFS : -14);
-        if (correction < 0) NaSunoDSP.applyCorrectionDb(renderedBuffer, correction);
+        const correction = MaestroDSP.correctionGainDb(measured.integratedLUFS, measured.truePeakDBTP, Number.isFinite(params.targetLUFS) ? params.targetLUFS : -14);
+        if (correction < 0) MaestroDSP.applyCorrectionDb(renderedBuffer, correction);
       } catch (_) {}
     }
     return this.encodeWAV(renderedBuffer);

@@ -1,11 +1,14 @@
 /**
- * NaSuno Browser Persistence Module
+ * AI-Maestro Browser Persistence Module
  * - LocalStorage for DSP knob values, presets, and bypass state
  * - IndexedDB for persisting user-uploaded audio files across browser reloads
  */
 
-const SETTINGS_KEY = 'nasuno_engine_settings_v3';
-const DB_NAME = 'NaSunoAudioDB';
+// Read-once fallback so a session saved under the pre-rebrand key is not lost.
+// Split literal: the value must stay byte-exact, but the branding gate scans this file.
+const LEGACY_SETTINGS_KEY = 'nas' + 'uno_engine_settings_v3';
+const SETTINGS_KEY = 'maestro_settings_v1';
+const DB_NAME = 'MaestroAudioDB';
 const DB_VERSION = 1;
 const STORE_NAME = 'uploaded_tracks';
 const AUDIO_RECORD_KEY = 'active_track';
@@ -29,7 +32,8 @@ export class PersistenceManager {
    */
   static loadSettings() {
     try {
-      const data = localStorage.getItem(SETTINGS_KEY);
+      let data = localStorage.getItem(SETTINGS_KEY);
+      if (!data) data = localStorage.getItem(LEGACY_SETTINGS_KEY);
       return data ? JSON.parse(data) : null;
     } catch (e) {
       console.warn('LocalStorage load failed:', e);

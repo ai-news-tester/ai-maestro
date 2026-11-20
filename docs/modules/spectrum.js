@@ -70,7 +70,7 @@ export function buildAutoIssues(report = {}, params = {}, reasons = {}, targetLU
     add({ id: 'deshimmer', knobId: 'deshimmer', name: 'Shimmer / dehaze 8-16 kHz', freqLo: 8000, freqHi: 16000, measured: sc, target: 0.2, unit: '', severity: sc });
   }
   const hf = r.hfCutoff;
-  if (Number.isFinite(hf) && hf > 0 && hf <= 16000) add({ id: 'hfCutoff', knobId: 'bandwidthHeal', name: 'Suno HF cutoff / air', freqLo: hf, freqHi: Math.min(22050, hf + 1000), measured: hf, target: 20000, unit: 'Hz', severity: (18000 - hf) / 4000, reason: why.airShelf || '' });
+  if (Number.isFinite(hf) && hf > 0 && hf <= 16000) add({ id: 'hfCutoff', knobId: 'bandwidthHeal', name: 'HF cutoff / air', freqLo: hf, freqHi: Math.min(22050, hf + 1000), measured: hf, target: 20000, unit: 'Hz', severity: (18000 - hf) / 4000, reason: why.airShelf || '' });
   const dc = Math.max(Math.abs(r.dcOffsetL || 0), Math.abs(r.dcOffsetR || 0));
   if (dc > 0.005) add({ id: 'rumbleDC', knobId: null, name: 'Rumble / DC below 30 Hz', freqLo: 20, freqHi: 30, measured: dc, target: 0, unit: '', severity: dc / 0.05, sliderDefault: 0, reason: 'DC offset ' + dc.toFixed(3) + ' - information only, no direct correction knob' });
   // Mud issue not emitted: no mudExcessDB measurement or chain parameter yet.

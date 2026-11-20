@@ -1,5 +1,5 @@
 /**
- * FLKnob — Generic Rotary Controller for FL Studio Plugin Aesthetic
+ * FLKnob — Generic Rotary Controller for AI-Maestro
  * Encapsulates rotor rotation, SVG arc ring, drag physics, wheel, and double-click reset.
  * Completely agnostic of DSP or backend logic.
  */

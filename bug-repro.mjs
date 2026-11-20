@@ -2,7 +2,7 @@ globalThis.window = { addEventListener() {} };
 globalThis.document = { getElementById: () => null };
 import { SpectralAnalyzer } from './docs/modules/analyzer.js';
 import { FLKnob } from './docs/modules/knob.js';
-import { NaSunoDSP } from './docs/modules/dsp.js';
+import { MaestroDSP } from './docs/modules/dsp.js';
 
 // 1. Silent track: crest should not be NaN
 const silent = new Float32Array(16384);
@@ -32,7 +32,7 @@ const ctx = {
   createDynamicsCompressor: () => ({ threshold: p(), knee: p(), ratio: p(), attack: p(), release: p(), connect() {}, disconnect() {} }),
   createAnalyser: () => ({ fftSize: 2048, smoothingTimeConstant: 0.8, connect() {}, disconnect() {} }),
 };
-const dsp = new NaSunoDSP();
+const dsp = new MaestroDSP();
 dsp.init(ctx);
 dsp.updateFromKnob('qualityGate', 6);
 console.log('qualityGate 6 -> limiter thresh:', dsp.qualityLimiter.threshold.v, 'expected -2.9 if max 6, -2.45 if clamped to 5');

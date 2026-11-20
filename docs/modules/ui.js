@@ -1,5 +1,5 @@
 /**
- * NaSuno UI Controller Module
+ * AI-Maestro UI Controller Module
  * Manages info popovers, preset dropdowns, and bypass controls.
  */
 
@@ -61,8 +61,8 @@ export class UIController {
 
     bodyEl.innerHTML = `
       <div class="popover-section">
-        <div class="popover-section-title">DEFEATS DETECTION VECTOR</div>
-        <p class="popover-highlight">${knob.info.defeats}</p>
+        <div class="popover-section-title">WHAT IT DOES</div>
+        <p class="popover-highlight">${knob.info.purpose}</p>
       </div>
       <div class="popover-section">
         <div class="popover-section-title">DESCRIPTION</div>
@@ -195,16 +195,16 @@ export class UIController {
     bodyEl.innerHTML = `
       <div class="popover-section">
         <div class="popover-section-title">FUNCTION & PURPOSE</div>
-        <p class="popover-highlight">Instant A/B comparison between active evasion DSP processing and the raw unprocessed audio.</p>
+        <p class="popover-highlight">Instant A/B comparison between the processed chain and the raw, unprocessed signal.</p>
       </div>
       <div class="popover-section">
         <div class="popover-section-title">MODES OF OPERATION</div>
-        <p><strong>• DSP ACTIVE (Green LED) [Recommended]</strong>: The complete 14-stage real-time psychoacoustic DSP engine is actively processing the audio stream in your browser. All notch filters, harmonic combustors, allpass phase scatterers, analog saturators, and dynamic compressors are applied live to defeat AI watermarks and detection signatures.</p>
-        <p style="margin-top: 8px;"><strong>• BYPASS (RAW) (Red/Dim LED)</strong>: Instantly bypasses all 14 DSP stages via click-free crossfade, routing the raw, un-evaded audio direct to your speakers. Use this to audition the exact delta difference between your clean master and the original track.</p>
+        <p><strong>• DSP ACTIVE (Green LED) [Recommended]</strong>: The full 14-stage chain runs live in your browser. Notch and peaking filters, all-pass stages, waveshapers, the modulated delay, the room taps, the compressor and the limiter are all applied to the audio stream as you turn the knobs.</p>
+        <p style="margin-top: 8px;"><strong>• BYPASS (RAW) (Red/Dim LED)</strong>: Crossfades around all 14 stages and routes the original signal straight to your speakers. Use it to hear exactly what the chain changed.</p>
       </div>
       <div class="popover-section">
         <div class="popover-section-title">HOW TO USE</div>
-        <p>Keep <strong>DSP ACTIVE</strong> while tuning knobs and evaluating evasion effectiveness. Toggle to <strong>BYPASS</strong> at any time to verify that audio quality and transparent fidelity remain uncompromised.</p>
+        <p>Keep <strong>DSP ACTIVE</strong> while tuning the controls. Toggle to <strong>BYPASS</strong> at any time to check that the tonal balance and transients still sound right against the original.</p>
       </div>
     `;
 

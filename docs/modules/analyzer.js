@@ -1,6 +1,5 @@
 /**
- * NaSuno Forensic Audio Analyzer — Pure JavaScript DSP Engine
- * Ported from src/nasuno/detectors/suno.py & steganography.py
+ * AI-Maestro Audio Analyzer — Pure JavaScript DSP Engine
  *
  * All math is real: STFT with Hann window, carrier SNR prominence,
  * cepstral echo detection, spectral flatness (Wiener entropy),
@@ -169,11 +168,11 @@ export class AudioMath {
 }
 
 // ============================================================================
-// SunoDetector — Carrier prominence + stability analysis
+// CarrierDetector — Carrier prominence + stability analysis
 // ============================================================================
-export class SunoDetector {
+export class CarrierDetector {
   /**
-   * Suno carrier frequency bands (Hz) — ported from Python detector.
+   * Carrier frequency bands (Hz) scanned for stationary tonal peaks.
    */
   static CARRIER_BANDS = [
     { lo: 15000, hi: 16000, label: '15.5 kHz Carrier' },
@@ -182,7 +181,7 @@ export class SunoDetector {
   ];
 
   /**
-   * Analyze PCM buffer for Suno carrier peaks.
+   * Analyze PCM buffer for carrier peaks.
    * @param {Float32Array} samples – mono PCM (−1…+1)
    * @param {number} sr – sample rate (e.g. 44100)
    * @returns {Object} – measured carrier results
@@ -629,10 +628,10 @@ export class SpectralAnalyzer {
     let hfCutoff = sr / 2, peakE = 0;
     for (const v of avg) if (v > peakE) peakE = v;
     for (let k = half - 1; k >= 0; k--) { if (avg[k] > peakE * 0.01) { hfCutoff = Math.round(k * (sr / nfft)); break; } }
-    let suno = { carriers: [] }, stego = { confidence: 0 };
-    try { suno = SunoDetector.analyze(mono, sr); } catch {}
+    let carrier = { carriers: [] }, stego = { confidence: 0 };
+    try { carrier = CarrierDetector.analyze(mono, sr); } catch {}
     try { stego = StegoDetector.analyze(mono, sr); } catch {}
     const lastR = ranges[ranges.length - 1];
-    return { integratedLUFS: loud.integratedLUFS, loudnessRange: loud.loudnessRange, truePeakDBTP: loud.truePeakDBTP, peakDBFS: base.peakDBFS, rmsDBFS: base.rmsDBFS, crestFactorDB: base.crestFactorDB, clippingCount, dcOffsetL: +(sumL / len).toFixed(6), dcOffsetR: +(sumR / len).toFixed(6), silenceRanges: ranges, fadeIn: ranges.length && ranges[0].start === 0 ? ranges[0].end : 0, fadeOut: lastR && Math.abs(lastR.end - duration) < 0.1 ? +(duration - lastR.start).toFixed(3) : 0, stereoWidth: +stereoWidth.toFixed(4), correlation: +correlation.toFixed(4), monoLowsDB: +(10 * Math.log10(bandE(20, 120) / totalE + 1e-12)).toFixed(2), spectralTilt: +(10 * Math.log10((bandE(8000, 16000) + 1e-12) / (bandE(100, 1000) + 1e-12))).toFixed(2), harshPeaks: [], sibilance: +(bandE(5000, 8000) / totalE).toFixed(4), hfCutoff, carriers: suno.carriers || [], echoConfidence: stego.confidence || 0, shimmer: this.measureShimmer(mono, sr), sampleRate: sr, duration };
+    return { integratedLUFS: loud.integratedLUFS, loudnessRange: loud.loudnessRange, truePeakDBTP: loud.truePeakDBTP, peakDBFS: base.peakDBFS, rmsDBFS: base.rmsDBFS, crestFactorDB: base.crestFactorDB, clippingCount, dcOffsetL: +(sumL / len).toFixed(6), dcOffsetR: +(sumR / len).toFixed(6), silenceRanges: ranges, fadeIn: ranges.length && ranges[0].start === 0 ? ranges[0].end : 0, fadeOut: lastR && Math.abs(lastR.end - duration) < 0.1 ? +(duration - lastR.start).toFixed(3) : 0, stereoWidth: +stereoWidth.toFixed(4), correlation: +correlation.toFixed(4), monoLowsDB: +(10 * Math.log10(bandE(20, 120) / totalE + 1e-12)).toFixed(2), spectralTilt: +(10 * Math.log10((bandE(8000, 16000) + 1e-12) / (bandE(100, 1000) + 1e-12))).toFixed(2), harshPeaks: [], sibilance: +(bandE(5000, 8000) / totalE).toFixed(4), hfCutoff, carriers: carrier.carriers || [], echoConfidence: stego.confidence || 0, shimmer: this.measureShimmer(mono, sr), sampleRate: sr, duration };
   }
 }

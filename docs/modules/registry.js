@@ -1,6 +1,6 @@
 /**
- * NaSuno DOM Registry & Wiring Engine
- * Fetches knob-registry.json and dynamically renders Evasion Mode knobs.
+ * AI-Maestro DOM Registry & Wiring Engine
+ * Fetches knob-registry.json and dynamically renders processing controls.
  * Zero hardcoded HTML: complete UI structure is data-driven.
  * Zero emojis: uses clean, razor-sharp SVG vector iconography.
  */
@@ -37,7 +37,7 @@ export class RegistryDOM {
   }
 
   /**
-   * Render the evasion panel into its designated DOM container.
+   * Render the processing panel into its designated DOM container.
    * @param {Object} options
    */
   renderAll(options = {}) {
@@ -45,7 +45,7 @@ export class RegistryDOM {
   }
 
   /**
-   * Render Evasion Mode (14 composite knobs across 4 modules).
+   * Render the control panel (14 composite knobs across 4 modules).
    */
   renderEvasionPanel(onInfoClick) {
     const container = document.getElementById('evasionPanel');
@@ -54,10 +54,10 @@ export class RegistryDOM {
 
     // Group composite knobs by module
     const modules = [
-      { id: 'watermarkErase', title: 'WATERMARK ERASE', subtitle: 'Direct removal of embedded AI marks', color: 'cyan' },
-      { id: 'fingerprintScatter', title: 'FINGERPRINT SCATTER', subtitle: 'Spectral shape & phase coherence disruption', color: 'cyan' },
-      { id: 'naturalization', title: 'NATURALIZATION', subtitle: 'Acoustic realism & room signature restoration', color: 'green' },
-      { id: 'masteringQuality', title: 'MASTERING & QUALITY', subtitle: 'Dynamic density & perceptual firewall gates', color: 'orange' },
+      { id: 'watermarkErase', title: 'RESONANCE CLEANUP', subtitle: 'Notch and peaking cuts at measured resonances', color: 'cyan' },
+      { id: 'fingerprintScatter', title: 'PHASE & TEXTURE', subtitle: 'Phase dispersion, soft shaping and micro delay', color: 'cyan' },
+      { id: 'naturalization', title: 'NATURALIZATION', subtitle: 'Room reflections, harmonic texture and air band', color: 'green' },
+      { id: 'masteringQuality', title: 'MASTERING', subtitle: 'Bus compression, limiter ceiling and output gain', color: 'orange' },
     ];
 
     for (const mod of modules) {
@@ -72,7 +72,7 @@ export class RegistryDOM {
             <span class="module-pill pill-${mod.color}">${mod.title}</span>
             <span class="module-desc">${mod.subtitle}</span>
           </div>
-          <span class="module-count">${modKnobs.length} VECTORS</span>
+          <span class="module-count">${modKnobs.length} CONTROLS</span>
         </div>
         <div class="module-knobs-grid" id="grid_${mod.id}"></div>
       `;
@@ -85,7 +85,7 @@ export class RegistryDOM {
         knobCol.innerHTML = `
           <div class="knob-label-row">
             <span class="knob-label" title="${k.label}">${k.label}</span>
-            <button class="info-btn" data-composite-info="${k.id}" title="Vector information" aria-label="Vector Info">
+            <button class="info-btn" data-composite-info="${k.id}" title="About this control" aria-label="About this control">
               ${SVG_ICONS.info}
             </button>
           </div>

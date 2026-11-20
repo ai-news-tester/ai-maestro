@@ -84,7 +84,7 @@ assert.ok(shimScore.score > sineScore.score, 'shimmer signal must score above pu
 console.log('Task 2: PASS');
 // ---- Task 4: one shared mastering chain ----
 import { readFileSync as readFs } from 'node:fs';
-import { NaSunoDSP } from './docs/modules/dsp.js';
+import { MaestroDSP } from './docs/modules/dsp.js';
 const dspSrc = readFs(new URL('./docs/modules/dsp.js', import.meta.url), 'utf8');
 assert.equal((dspSrc.match(/buildMasterChain\s*\(/g) || []).length >= 3, true, 'buildMasterChain defined + called by init and exportWAV');
 const initBody = dspSrc.slice(dspSrc.indexOf('init(ctx)'), dspSrc.indexOf('connect(sourceNode'));
@@ -208,11 +208,11 @@ console.log('Task 6: PASS');
 // ---- Task 7 fix: closed-loop loudness, gain before limiters ----
 // RED: correctionGainDb does not exist yet; loudnessDb still subtracts
 // outputGain; exportWAV still puts outGain after tpLimiter.
-assert.equal(typeof NaSunoDSP.correctionGainDb, 'function', 'dsp exposes correctionGainDb');
+assert.equal(typeof MaestroDSP.correctionGainDb, 'function', 'dsp exposes correctionGainDb');
 // MustaJaa after-state: -8.09 LUFS, +0.56 dBTP, target -14 -> -5.91 dB
-assert.ok(Math.abs(NaSunoDSP.correctionGainDb(-8.09, 0.56, -14) - (-5.91)) < 0.01, 'MustaJaa correction -5.91 dB');
+assert.ok(Math.abs(MaestroDSP.correctionGainDb(-8.09, 0.56, -14) - (-5.91)) < 0.01, 'MustaJaa correction -5.91 dB');
 // TP-limited case: LUFS on target but TP 0 dBTP -> gain down 1 dB, no clipping
-assert.ok(Math.abs(NaSunoDSP.correctionGainDb(-14, 0, -14) - (-1)) < 0.01, 'TP-limited correction -1 dB');
+assert.ok(Math.abs(MaestroDSP.correctionGainDb(-14, 0, -14) - (-1)) < 0.01, 'TP-limited correction -1 dB');
 const chainBody7 = dspSrc.slice(dspSrc.indexOf('buildMasterChain(ctx'), dspSrc.indexOf('// MASTER_CHAIN_END'));
 assert.ok(!chainBody7.includes('targetLUFS - p.integratedLUFS - (p.outputGain'), 'loudnessGain must not subtract outputGain');
 const exportBody7 = dspSrc.slice(dspSrc.indexOf('static async exportWAV'), dspSrc.indexOf('static encodeWAV'));
@@ -225,7 +225,7 @@ console.log('Task 7 fix: PASS');
 assert.ok(chainBody7.includes('autoTrimDb'), 'chain reads autoTrimDb');
 assert.ok(chainBody7.includes('ceiling.connect(trimGain)'), 'trim after ceiling, inside shared chain');
 assert.ok(chainBody7.includes('output: trimGain'), 'chain output is the trim node');
-assert.equal(typeof NaSunoDSP.renderChain, 'function', 'renderChain helper shared by export and calibration');
+assert.equal(typeof MaestroDSP.renderChain, 'function', 'renderChain helper shared by export and calibration');
 const autoRunBody = appSrc6.slice(appSrc6.indexOf('async function runAutoMaster'), appSrc6.indexOf('// ============================================================================\n// Preset Profile Management'));
 assert.ok(autoRunBody.includes('renderChain'), 'AUTO calibrates from a real render');
 assert.ok(autoRunBody.includes('correctionGainDb'), 'AUTO computes the trim from measurement');

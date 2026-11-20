@@ -3,58 +3,47 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>NaSuno — AI Audio Footprint Evasion & Forensic Analyzer Rack</title>
-  <meta name="description" content="Defensive audio engineering toolkit designed to defeat AI detection pipelines, neural watermarks, and acoustic fingerprinting with zero audible degradation. Dual-mode evasion knobs and full raw parameter matrix.">
-  <meta name="keywords" content="AI audio footprint evasion, bypass Suno detection, Udio watermark remover, defeat audio fingerprinting, AcoustID bypass, audio forensics, FL Studio VST plugin, psychoacoustic firewall, cepstral echo strip">
-  <meta name="author" content="Ahmad Hassan (B-Ted)">
+  <title>AI-Maestro — Audio Measurement & Mastering in the Browser</title>
+  <meta name="description" content="Measure a track in the browser: loudness, true peak, crest factor, spectral flatness and high-frequency resonances. Then apply a 14-stage Web Audio chain of notch and peaking EQ, all-pass phase stages, waveshapers, compression and limiting, and export 16-bit WAV.">
+  <meta name="keywords" content="audio mastering, loudness measurement, LUFS, true peak, BS.1770, spectral analyzer, Web Audio, parametric EQ, browser audio tool, WAV export">
   <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1">
   <meta name="theme-color" content="#16191f">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <link rel="canonical" href="https://ai-news-tester.github.io/aim/">
+  <link rel="canonical" href="https://ai-news-tester.github.io/ai-maestro/">
 
   <!-- Favicon -->
   <link rel="icon" type="image/svg+xml" href="assets/humanized_knob_logo.svg">
 
   <!-- Open Graph / Facebook / Discord -->
   <meta property="og:type" content="website">
-
-  <meta property="og:site_name" content="HUMANIZER Audio Studio">
-  <meta property="og:url" content="https://ai-news-tester.github.io/aim/">
-  <meta property="og:title" content="HUMANIZER — Dial from AI to Human">
-  <meta property="og:description" content="Clean your tracks. Remove Suno & AI watermarks. Phase-neutral mathematical DSP retaining 100% audio quality.">
-  <meta property="og:image" content="https://raw.githubusercontent.com/ai-news-tester/aim/main/docs/assets/humanized_knob_banner_large.png">
-  <meta property="og:image:width" content="1280">
-  <meta property="og:image:height" content="640">
-  <meta property="og:image:alt" content="HUMANIZER — Dial from AI to Human Banner">
+  <meta property="og:site_name" content="AI-Maestro">
+  <meta property="og:url" content="https://ai-news-tester.github.io/ai-maestro/">
+  <meta property="og:title" content="AI-Maestro — Audio Measurement & Mastering">
+  <meta property="og:description" content="Measure loudness, true peak and spectral balance, then master with a 14-stage Web Audio chain. Runs entirely in your browser and exports 16-bit WAV.">
 
   <!-- Twitter / X -->
-  <meta name="twitter:card" content="summary_large_image">
-  <meta name="twitter:url" content="https://ai-news-tester.github.io/aim/">
-  <meta name="twitter:title" content="HUMANIZER — Dial from AI to Human">
-  <meta name="twitter:description" content="Clean your tracks. Remove Suno & AI watermarks. Phase-neutral mathematical DSP retaining 100% audio quality.">
-  <meta name="twitter:image" content="https://raw.githubusercontent.com/ai-news-tester/aim/main/docs/assets/humanized_knob_banner_large.png">
+  <meta name="twitter:card" content="summary">
+  <meta name="twitter:url" content="https://ai-news-tester.github.io/ai-maestro/">
+  <meta name="twitter:title" content="AI-Maestro — Audio Measurement & Mastering">
+  <meta name="twitter:description" content="Measure loudness, true peak and spectral balance, then master with a 14-stage Web Audio chain. Runs entirely in your browser and exports 16-bit WAV.">
 
   <!-- JSON-LD Structured Data for Google Rich Snippets -->
   <script type="application/ld+json">
   {
     "@context": "https://schema.org",
     "@type": "SoftwareApplication",
-    "name": "NaSuno",
-    "operatingSystem": "Cross-platform (Linux, Windows, macOS, Web Audio)",
+    "name": "AI-Maestro",
+    "url": "https://ai-news-tester.github.io/ai-maestro/",
+    "operatingSystem": "Any modern web browser",
     "applicationCategory": "MultimediaApplication",
-    "softwareRequirements": "Modern Web Browser or Python 3.9+",
+    "softwareRequirements": "Browser with Web Audio API support",
     "offers": {
       "@type": "Offer",
       "price": "0.00",
       "priceCurrency": "USD"
     },
-    "description": "Defensive audio engineering toolkit designed to defeat AI audio detection pipelines, ultrasonic carrier marks, cepstral echo hiding, and acoustic fingerprinting.",
-    "author": {
-      "@type": "Person",
-      "name": "Ahmad Hassan (B-Ted)",
-      "url": "https://github.com/ai-news-tester"
-    }
+    "description": "Browser audio measurement and mastering tool. Reports BS.1770 integrated loudness, true peak, crest factor, spectral flatness and high-frequency resonances, then applies a 14-stage Web Audio processing chain and exports 16-bit PCM WAV."
   }
   </script>
 
@@ -76,27 +65,27 @@
     <header class="rack-top-bar">
       <div class="brand-cluster">
         <div class="brand-logo-fl" style="overflow: hidden; padding: 0; background: transparent;">
-          <img src="assets/humanized_knob_logo.svg" alt="Humanizer Logo" width="22" height="22" style="border-radius: 4px; display: block;">
+          <img src="assets/humanized_knob_logo.svg" alt="AI-Maestro logo" width="22" height="22" style="border-radius: 4px; display: block;">
         </div>
         <div class="brand-text">
-          <h1 class="brand-title">HUMANIZER <span>v2.5</span></h1>
-          <span class="brand-subtitle">DIAL FROM <span style="color: #00F2FE; font-weight: 800;">AI</span> TO <span style="color: #FF7A00; font-weight: 800;">HUMAN</span></span>
+          <h1 class="brand-title">AI-Maestro</h1>
+          <span class="brand-subtitle">MEASURE, CLEAN UP AND MASTER IN THE BROWSER</span>
         </div>
       </div>
 
       <!-- Preset Selector -->
       <div class="preset-chassis">
         <div class="preset-label">PROFILE</div>
-        <div class="preset-selector-box" id="presetSelectorBtn" title="Choose Evasion Profile">
-          <span class="preset-current-name" id="currentPresetName">Standard Evasion</span>
+        <div class="preset-selector-box" id="presetSelectorBtn" title="Choose a preset profile">
+          <span class="preset-current-name" id="currentPresetName">Standard</span>
           <svg class="preset-arrow-svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="6 9 12 15 18 9"/></svg>
         </div>
         <div class="preset-dropdown" id="presetDropdown">
           <button class="preset-opt" data-preset="off">Off (Original Audio / Direct)</button>
-          <button class="preset-opt" data-preset="lowProfile">Low Profile (Pristine Fidelity)</button>
-          <button class="preset-opt active" data-preset="standardEvasion">Standard Evasion (Balanced)</button>
-          <button class="preset-opt" data-preset="deepClean">Deep Clean (Multi-Vector)</button>
-          <button class="preset-opt" data-preset="fullScrub">Full Scrub (Max Destruction)</button>
+          <button class="preset-opt" data-preset="lowProfile">Gentle (Pristine Fidelity)</button>
+          <button class="preset-opt active" data-preset="standardEvasion">Standard (Balanced)</button>
+          <button class="preset-opt" data-preset="deepClean">Deep (Stronger Cleanup)</button>
+          <button class="preset-opt" data-preset="fullScrub">Full (Maximum Depth)</button>
         </div>
       </div>
 

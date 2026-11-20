@@ -3,7 +3,7 @@ globalThis.window = { addEventListener() {} };
 globalThis.document = { getElementById: () => null };
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { NaSunoDSP } from './docs/modules/dsp.js';
+import { MaestroDSP } from './docs/modules/dsp.js';
 
 function p() { const o = {}; o.setValueAtTime = (v) => { o.v = v; }; o.setTargetAtTime = (v) => { o.v = v; }; o.value = 0; return o; }
 function mockFilter() { return { type: '', frequency: p(), Q: p(), gain: p(), connect() {}, disconnect() {} }; }
@@ -42,7 +42,7 @@ assert.equal(registry.presets.deepClean.compositeValues.deshimmer, 35, 'preset d
 assert.equal(registry.presets.fullScrub.compositeValues.deshimmer, 55, 'preset fullScrub deshimmer');
 
 // DSP live stage (Task 3 Step 4)
-const dsp = new NaSunoDSP();
+const dsp = new MaestroDSP();
 dsp.init(ctx);
 assert.equal(dsp.params.deshimmer, 0, 'params.deshimmer default must be 0');
 assert.ok(dsp.deshimmerShelf, 'deshimmerShelf missing after init');

@@ -1,11 +1,11 @@
 /**
- * NaSuno Web Application v3.0 Entry Point
- * Coordinates Real Web Audio DSP, Pure Math Forensic Analyzer,
- * and the 14-knob Evasion engine.
+ * AI-Maestro Web Application Entry Point
+ * Coordinates the Web Audio DSP chain, the measurement analyzer,
+ * and the 15-control mastering rack.
  */
 
-import { SunoDetector, StegoDetector, SpectralAnalyzer } from './modules/analyzer.js';
-import { NaSunoDSP } from './modules/dsp.js?v=9'; // shortcut: manual ?v= cache-bust, bump when dsp.js changes
+import { CarrierDetector, StegoDetector, SpectralAnalyzer } from './modules/analyzer.js';
+import { MaestroDSP } from './modules/dsp.js?v=9'; // shortcut: manual ?v= cache-bust, bump when dsp.js changes
 import { mapAutoReport } from './modules/auto.js';
 import { SpectrumRenderer, buildAutoIssues } from './modules/spectrum.js';
 import { UIController } from './modules/ui.js';
@@ -42,7 +42,7 @@ function ensureAudioContext() {
   if (!audioCtx) {
     const AudioContextClass = window.AudioContext || window.webkitAudioContext;
     audioCtx = new AudioContextClass();
-    dsp = new NaSunoDSP();
+    dsp = new MaestroDSP();
     dsp.init(audioCtx);
 
     // Push initial DSP parameters from composite knobs
@@ -138,22 +138,22 @@ function runForensicAnalysis(buffer) {
     }
 
     // Run real math algorithms
-    const suno = SunoDetector.analyze(samples, sr);
+    const carrier = CarrierDetector.analyze(samples, sr);
     const stego = StegoDetector.analyze(samples, sr);
     const spec = SpectralAnalyzer.analyze(samples, sr);
 
-    updateTelemetryUI(suno, stego, spec, buffer);
+    updateTelemetryUI(carrier, stego, spec, buffer);
   }, 15);
 }
 
-function updateTelemetryUI(suno, stego, spec, buffer) {
+function updateTelemetryUI(carrier, stego, spec, buffer) {
   const statusEl = document.getElementById('forensicStatus');
   if (statusEl) {
     statusEl.textContent = `Analyzed ${buffer.duration.toFixed(1)}s PCM @ ${buffer.sampleRate} Hz (${buffer.numberOfChannels} ch)`;
   }
 
   // Carrier 1 (15.5k)
-  const c1 = suno.carriers[0];
+  const c1 = carrier.carriers[0];
   const c1Freq = document.getElementById('carrier1Freq');
   const c1Prom = document.getElementById('carrier1Prom');
   const c1Bar = document.getElementById('carrier1Bar');
@@ -170,7 +170,7 @@ function updateTelemetryUI(suno, stego, spec, buffer) {
   }
 
   // Carrier 2 (17.5k)
-  const c2 = suno.carriers[1];
+  const c2 = carrier.carriers[1];
   const c2Freq = document.getElementById('carrier2Freq');
   const c2Prom = document.getElementById('carrier2Prom');
   const c2Bar = document.getElementById('carrier2Bar');
@@ -187,7 +187,7 @@ function updateTelemetryUI(suno, stego, spec, buffer) {
   }
 
   // Carrier 3 (19.5k)
-  const c3 = suno.carriers[2];
+  const c3 = carrier.carriers[2];
   const c3Freq = document.getElementById('carrier3Freq');
   const c3Prom = document.getElementById('carrier3Prom');
   const c3Bar = document.getElementById('carrier3Bar');
@@ -618,10 +618,10 @@ async function runAutoMaster() {
     setAutoProgress('Master: calibrating loudness (full-track render)...');
     await new Promise((r) => setTimeout(r, 0));
     // Calibrate the trim from a real render so live playback matches export.
-    const rendered = await NaSunoDSP.renderChain(buffer, auto.params);
+    const rendered = await MaestroDSP.renderChain(buffer, auto.params);
     if (token !== autoRunToken) return;
-    const measured = NaSunoDSP.measureRender(rendered);
-    auto.params.autoTrimDb = NaSunoDSP.correctionGainDb(measured.integratedLUFS, measured.truePeakDBTP, auto.params.targetLUFS);
+    const measured = MaestroDSP.measureRender(rendered);
+    auto.params.autoTrimDb = MaestroDSP.correctionGainDb(measured.integratedLUFS, measured.truePeakDBTP, auto.params.targetLUFS);
 
     setAutoProgress('Master: applying chain...');
     applyAutoReport(report, auto);
@@ -725,7 +725,7 @@ function setupExportWAV() {
       }
 
       const isBypassed = !!(dsp?.isBypassed || currentTrackType === 'raw' || currentTrackType === 'custom_raw');
-      const wavBlob = await NaSunoDSP.exportWAV(currentBuffer, currentKnobValues, isBypassed);
+      const wavBlob = await MaestroDSP.exportWAV(currentBuffer, currentKnobValues, isBypassed);
       const downloadUrl = URL.createObjectURL(wavBlob);
 
       const a = document.createElement('a');
