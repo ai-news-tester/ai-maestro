@@ -1,200 +1,179 @@
 ﻿<p align="center">
   <a href="https://ai-news-tester.github.io/aim/">
-    <img src="docs/assets/humanized_knob_banner_large.png" alt="NaSuno - Anti-Attribution & AI Watermark Removal" width="100%"/>
+    <img src="docs/assets/humanized_knob_banner_large.png" alt="HUMANIZER - Dial from AI to Human" width="100%"/>
   </a>
 </p>
 
-<h1 align="center">NaSuno</h1>
+<h1 align="center">HUMANIZER</h1>
 
 <p align="center">
-  <strong>Defensive Psychoacoustic Audio DSP Toolkit & Forensic Anti-Attribution Engine</strong><br>
-  <em>Surgically neutralize Suno, Udio, and synthetic audio watermarks with zero perceptible quality degradation.</em>
-</p>
-
-<p align="center">
-  <a href="https://trendshift.io/repositories/282905?utm_source=trendshift-badge&amp;utm_medium=badge&amp;utm_campaign=badge-trendshift-282905" target="_blank" rel="noopener noreferrer"><img src="https://trendshift.io/api/badge/trendshift/repositories/282905/daily" alt="ai-news-tester%2Faim | Trendshift" width="250" height="55"/></a>
+  <strong>Browser-based audio DSP rack for AI-generated music: forensic analysis, cleanup, and Spotify-ready AUTO mastering.</strong><br>
+  <em>Drop in a raw Suno WAV, see what is wrong and where, and export a -14 LUFS / -1 dBTP master that sounds like what you heard live.</em>
 </p>
 
 <p align="center">
   <a href="https://ai-news-tester.github.io/aim/"><img src="https://img.shields.io/badge/Live%20Studio-Web%20DSP%20Rack-00F2FE?logo=googlechrome&logoColor=white" alt="Live Studio"></a>
   <a href="https://github.com/ai-news-tester/aim/actions/workflows/ci.yml"><img src="https://github.com/ai-news-tester/aim/actions/workflows/ci.yml/badge.svg" alt="CI Status"></a>
   <a href="https://ai-news-tester.github.io/aim/"><img src="https://github.com/ai-news-tester/aim/actions/workflows/pages.yml/badge.svg" alt="Pages Deployment"></a>
-  <a href="https://github.com/ai-news-tester/aim/stargazers"><img src="https://img.shields.io/github/stars/ai-news-tester/aim?style=flat&color=ffd700" alt="GitHub Stars"></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="MIT License"></a>
-  <a href="docs/architecture.md"><img src="https://img.shields.io/badge/Architecture-Hexagonal%20DSP-orange" alt="Architecture"></a>
-</p>
-
-<p align="center">
-  <a href="https://ai-news-tester.github.io/aim/">
-    <img src="docs/assets/plugin_hero.jpg" alt="NaSuno Web Audio Studio - Dark Skeuomorphic DSP Rack" width="880"/>
-  </a>
-</p>
-
-<p align="center">
-  <a href="https://ai-news-tester.github.io/aim/"><strong>🎛️ Launch Web Audio Studio</strong></a> &bull;
-  <a href="#-core-capabilities--product-matrix"><strong>Capability Matrix</strong></a> &bull;
-  <a href="#-14-vector-anti-attribution-matrix"><strong>14-Vector Defense</strong></a> &bull;
-  <a href="#-system-architecture"><strong>Architecture</strong></a> &bull;
-  <a href="#-research--forensic-specifications"><strong>Research Specs</strong></a> &bull;
-  <a href="#-community--governance"><strong>Governance</strong></a>
+  <img src="https://img.shields.io/badge/Dependencies-zero-brightgreen" alt="Zero dependencies">
 </p>
 
 ---
 
-## ⚡ Executive Summary
+## What it is
 
-Generative audio models (Suno, Udio, ElevenLabs, Google SynthID) inject proprietary synthetic watermarks, high-frequency ultrasonic carriers (19.5 kHz), phase-locked spread spectrums, and latent provenance tags into generated waveforms. When musicians, producers, or sound designers incorporate AI stems, sound effects, or background textures into human compositions, their entire track becomes forensically tagged for platform surveillance and automated copyright attribution.
+HUMANIZER (v2.5) is a single-page Web Audio application. Everything runs client-side in your browser: no uploads, no server processing, no accounts, no build step, no dependencies — plain JavaScript ES modules and the Web Audio API.
 
-**NaSuno** is a defensive, mathematical signal processing framework designed to decouple human musical creativity from synthetic platform tracking. Built on **ISO 226 equal-loudness contours**, **Bark-scale critical-band psychoacoustics**, and **zero-phase IIR notch filtering**, NaSuno strips forensic tracking markers while maintaining complete spectral transparency, transient punch, and stereo correlation.
+It does three things:
+
+1. **Forensic analysis** — measures a track's loudness (BS.1770-5 K-weighted LUFS + loudness range), 4x-oversampled true peak, clipping, DC offset, silence and fades, stereo width and correlation, spectral tilt, sibilance, HF cutoff, Suno-style ultrasonic carrier prominence (15.5 / 17.5 / 19.5 kHz bands), cepstral echo confidence, and an HF shimmer score.
+2. **Manual DSP rack** — 15 knobs in four groups (Watermark Erase, Fingerprint Scatter, Naturalization, Mastering & Quality) with five presets, live A/B bypass, a dual-trace 2048-point FFT spectrum, and 16-bit PCM WAV export.
+3. **AUTO Spotify mastering** — one button: analyze the full track, map the findings to clamped cleanup/mastering values with a written reason for every choice, calibrate loudness from a real render, and export `name.auto-master.wav` at -14 LUFS integrated / -1 dBTP. Live playback and the download run the identical shared chain.
+
+**Honest scope:** the cleanup stages target measurable artifacts (carrier tones, comb peaks, HF shimmer, squashed dynamics). Deshimmer is sound-quality cleanup only — it does not remove watermarks and does not affect AI detection. No claim is made that any processing defeats provenance systems such as SynthID or C2PA.
 
 ---
 
-## 🚀 Core Capabilities & Product Matrix
+## AUTO mastering
+
+Click **AUTO MASTER** with a track loaded:
+
+- **Detect** — full-track analysis (not a 12-second window): every metric above, with silence handling (no NaN on silent or sub-frame input).
+- **Clean** — deterministic rules map measurements to knob values, each clamped to the preset ranges: carrier prominence over 3 dB raises Carrier Erase, echo confidence raises Stego Strip, shimmer raises Deshimmer (gated by confidence — clean tracks stay at 0), high sibilance enables a 6.5 kHz de-esser, low HF cutoff enables an air shelf, low correlation enables M/S bass anchoring, low crest raises glue compression. Every choice comes with a reason string shown in the report.
+- **Master** — the app renders the full track once through the shared chain, measures the render with the same BS.1770 meter, and stores a reduction-only trim so the result lands on target. The trim is a gain node inside the chain, after a hard -1 dB ceiling, so live playback matches the export sample-for-sample (verified within one 16-bit LSB).
+- **Export** — 16-bit PCM WAV named `name.auto-master.wav`. Targets: Streaming -14 (default), Loud -12, Club -10 LUFS.
+
+The report panel lists each detected issue with its frequency band, time range, measured value vs target, a severity bar, and a slider pre-set to the AUTO value. Moving a slider switches that issue to manual and it stays until the next AUTO run. **Play Original / Play AUTO** A/B, **Revert to Manual** restores your previous preset.
+
+### Verified results
+
+Full-track renders through the real UI (headless Chromium, fresh profile):
+
+| Track | Before | After AUTO export |
+|---|---|---|
+| 242 s Suno track (46 MB WAV) | -16.21 LUFS / -3.86 dBTP / 0 clipped samples | **-14.0 LUFS / -6.47 dBTP / 0 clipped samples**; top carrier 2.95 → 0.02 dB |
+| 8 s demo | -12.59 LUFS / -0.03 dBTP / 0 clipped samples | **-14.0 LUFS / -5.25 dBTP / 0 clipped samples** |
+
+Live-vs-export maximum sample difference: 0.000031 (one 16-bit LSB). The 242-second track exports without memory issues.
+
+---
+
+## The 15 knobs
+
+| Group | Knob | Range | Default | What it does |
+|---|---|---|---|---|
+| Watermark Erase | Carrier Erase | 0–100 | 50 | Notches at 15.5 / 17.5 / 19.5 kHz; Q widens with strength |
+| Watermark Erase | Stride Remove | 0–100 | 35 | Peaking cuts at 172.3 / 344.6 Hz frame harmonics |
+| Watermark Erase | Stego Strip | 0–100 | 45 | 3.8 kHz comb cut for cepstral echo artifacts |
+| Watermark Erase | Neural Scrub | 0–100 | 45 | High-shelf HF residual attenuation (19 → 11 kHz) |
+| Fingerprint Scatter | Spectral Blend | 0–100 | 40 | Resonant peak smoothing at 4.2 / 7.6 kHz |
+| Fingerprint Scatter | Phase Scatter | 0–100 | 40 | 3-stage all-pass phase dispersion |
+| Fingerprint Scatter | Stat Normalize | 0–100 | 40 | Soft-knee waveshaper for statistical outliers |
+| Fingerprint Scatter | Hash Break | 0–100 | 30 | LFO-modulated micro-delay (anti audio-fingerprint) |
+| Naturalization | Room Inject | 0–100 | 35 | Multi-tap early reflections |
+| Naturalization | Texture Inject | 0–100 | 35 | Harmonic tape/tube-style saturation |
+| Naturalization | Deshimmer | 0–100 | 0 | 10 kHz shelf + HF cleanup boosts (sound quality only) |
+| Naturalization | Bandwidth Heal | -6–+6 dB | 0.25 | 12 kHz air shelf |
+| Mastering | Dynamics | 0–100 | 40 | Crest-aware glue compression |
+| Mastering | Quality Gate | 1–6 | 3 | Safety limiter threshold |
+| Mastering | Output | -12–+6 dB | 0 | Output gain staging |
+
+Presets: **Off** (bit-transparent bypass), **Low Profile**, **Standard Evasion**, **Deep Clean**, **Full Scrub**. Shift-drag any knob for fine steps. Settings and uploaded audio persist in the browser (LocalStorage + IndexedDB) across refreshes.
+
+---
+
+## Run it
+
+No install, no build:
+
+```bash
+cd docs
+python -m http.server 8123
+# open http://127.0.0.1:8123/
+```
+
+Or use the hosted studio: **https://ai-news-tester.github.io/aim/**
+
+Upload a WAV (or use the built-in demo), turn knobs or press AUTO MASTER, then EXPORT CLEANED WAV.
+
+### Tests
+
+Node 20+, from the repo root — no framework, plain assert scripts:
+
+```bash
+node bug-repro.mjs        # knob math, fine steps, limiter thresholds, gain staging
+node auto-repro.mjs       # meter reference tests, full-track analysis, chain order,
+                          # AUTO mapper, UI wiring, loudness correction + parity cases
+node deshimmer-repro.mjs  # deshimmer knob + stage behavior
+node track-report.mjs docs/audio/your-track.wav   # measure any WAV: LUFS, dBTP, clips, carriers, shimmer
+```
+
+---
+
+## Architecture
+
+One shared mastering chain, two consumers — the rule that keeps live and export identical:
 
 ```text
-┌────────────────────────────────────────────────────────────────────────────────────────────────────────┐
-│                                       NASUNO CORE CAPABILITIES                                         │
-├───────────────────────────────┬───────────────────────────────┬───────────────────────────────┬────────┤
-│ 🚨 Watermark & Carrier Purge  │   Psychoacoustic Masking      │   Forensic Anti-Attribution   │    WAV │
-│  - Ultrasonic Notch (19.5kHz) │  - ISO 226 Equal Loudness     │  - Suno AI Carrier Excision   │  - FLAC│
-│  - SynthID Inaudible Spread   │  - Bark-Scale Masking Latency │  - Udio Latent Neutralization │  - MP3 │
-│  - Zero-Phase Bi-Directional  │  - TPDF Dither Reconstruction │  - C2PA / RIFF Tag Stripping  │  - OGG │
-└───────────────────────────────┴───────────────────────────────┴───────────────────────────────┴────────┘
+docs/app.js                 orchestration: upload, playback, AUTO flow, report, export
+docs/modules/
+  analyzer.js               AudioMath (STFT), SunoDetector, StegoDetector,
+                            SpectralAnalyzer: BS.1770-5 LUFS/LRA, 4x polyphase true peak,
+                            analyzeFullTrack, measureShimmer
+  auto.js                   mapAutoReport: deterministic report -> clamped params + reasons
+  dsp.js                    NaSunoDSP: buildMasterChain (the one shared chain),
+                            live connect/bypass, renderChain, exportWAV (16-bit PCM)
+  spectrum.js               SpectrumRenderer + buildAutoIssues (overlay bands, issue rows)
+  knob.js / registry.js     FLKnob widget + knob-registry.json driven DOM
+  ui.js / storage.js        UI controller, LocalStorage/IndexedDB persistence
 ```
 
-### 1. Ultrasonic Carrier Notch Filtering (19.5 kHz)
-* **Zero Phase Distortion:** Uses bi-directional forward-backward IIR filtering ($Q \ge 30$) to eliminate ultrasonic pilots without introducing phase smearing or ringing in upper harmonics.
-* **Transient Preservation:** Isolates high-frequency cymbal air and vocal breath while dropping tracking carrier amplitude below the $-110\text{ dBFS}$ noise floor.
+- `buildMasterChain` is called by live playback, offline export, and AUTO calibration — same nodes, same order, same constants, same LFO. Any new stage goes into both paths or it does not ship.
+- AUTO-only parameters (de-esser, air shelf, M/S bass, calibrated trim) travel in the params object, not as new knobs.
+- The loudness meter is verified against a known-value reference sine before anything downstream trusts it; true peak uses 4x polyphase FIR interpolation, not a sample-peak proxy.
 
-### 2. ISO 226 Perceptual Masking Engine
-* **Bark-Scale Critical Band Analysis:** Evaluates instantaneous masking thresholds across all 24 human auditory critical bands.
-* **Mathematical Inaudibility:** Ensures any anti-attribution spectral dither or micro-dispersion is injected strictly within acoustically invisible masking corridors.
-
-### 3. Latent & Sub-Band Dispersion
-* **Spread-Spectrum Neutralization:** Scrambles pseudo-random watermark chip sequences embedded across mid-range acoustic formants.
-* **Phase De-correlation:** Neutralizes multi-band phase anomalies without compromising mono-compatibility or stereo field width.
-
-### 4. Container & Provenance Sanitization
-* **Deep Metadata Scrubber:** Strips hidden C2PA provenance manifests, RIFF `INFO` chunks, ID3 tags, and BWF acoustic metadata.
-* **Cryptographic Invariance:** Guarantees zero residual tracking strings remain within the container wrapper.
+Design documents: [AUTO Spotify spec](docs/superpowers/specs/2026-11-16-auto-spotify-design.md), [Deshimmer spec](docs/superpowers/specs/2026-11-16-deshimmer-auto-design.md), [implementation plan](docs/superpowers/plans/2026-11-16-auto-spotify.md).
 
 ---
 
-## 🛡️ 14-Vector Anti-Attribution Matrix
-
-| Vector ID | Target Artifact / Platform | Forensic Carrier Mechanism | DSP Countermeasure | Impact on Audio | Evasion Status |
-| :--- | :--- | :--- | :--- | :--- | :---: |
-| **V-01** | Suno AI Ultrasonic Carrier | 19.5 kHz continuous sinusoids | Zero-Phase IIR Notch ($Q=35$) | Transparent ($\Delta < 0.02\text{ dB}$) | ✅ **Neutralized** |
-| **V-02** | Udio Diffusion Harmonics | Phase-locked periodic micro-artifacts | Formant-Aware Dynamic Phase Shift | Transparent | ✅ **Neutralized** |
-| **V-03** | Google SynthID Audio | Inaudible spread-spectrum chip sequences | Perceptual Bark-Band De-correlation | Inaudible | ✅ **Neutralized** |
-| **V-04** | C2PA & Provenance Manifests | Metadata headers & file chunk payloads | Bitstream Structural Excision | Zero impact on audio | ✅ **Sanitized** |
-| **V-05** | Neural Vocoder Latent Peaks | Fixed comb peaks from HiFi-GAN / EnCodec | Adaptive Spectral Smoother | Natural harmonic tone | ✅ **Smoothed** |
-| **V-06** | Micro-Timing Lattice | Rigid grid quantized sample placement | Humanized Gaussian Micro-Jitter | Enhanced natural groove | ✅ **Humanized** |
-| **V-07** | Sub-Bass Infrasonic Pilot | $5\text{--}18\text{ Hz}$ phase-offset tracking tones | 24 dB/Oct Butterworth High-Pass ($20\text{ Hz}$) | Cleans subwoofer headroom | ✅ **Removed** |
-| **V-08** | Quantization Footprints | Deterministic truncations | TPDF Psychoacoustic Dithering | Lowers perceived noise | ✅ **Dithered** |
-| **V-09** | Stereo Phase Correlation | Artificial spatial coherence vectors | Micro-Stereo Blumlein Decorrelator | Preserves monocompatibility | ✅ **Decorrelated** |
-| **V-10** | Dynamic Range Invariance | Flat compression curves of AI models | Non-Linear Transient Expander | Restores punch & dynamics | ✅ **Restored** |
-| **V-11** | RIFF/ID3 Injected Chunks | AI watermarks in padding bytes | Zero-Byte Re-alignment | Bit-perfect header rewrite | ✅ **Sanitized** |
-| **V-12** | Harmonic Comb Artifacts | Pitch-synchronous overtone fingerprints | Multi-Band Comb Anti-Filter | Warm analog resonance | ✅ **Neutralized** |
-| **V-13** | Spectral Flux Regularity | Unnatural constant flux across frames | Controlled Entropic Modulation | Analog console warmth | ✅ **Modulated** |
-| **V-14** | Bit-Depth Statistical Fingerprint| Identical bit patterns across quiet stems | Sub-Audible Stochastic Whitening | Meets broadcast standards | ✅ **Randomized** |
-
----
-
-## 🎛️ Live Web Audio DSP Studio
-
-Test and experience NaSuno directly in your browser with zero installation:
-
-👉 **[Launch NaSuno Web Audio Studio](https://ai-news-tester.github.io/aim/)**
-
-* **100% Client-Side:** Processes audio strictly in memory using the Web Audio API. Zero files uploaded, zero data logged.
-* **FL Studio-Inspired Interface:** Dark skeuomorphic DSP rack featuring realistic aluminum rotary knobs, LED VU meters, and interactive frequency analyzers.
-* **Real-Time Visual Diagnostics:** Live 2048-point FFT spectrum analyzer and stereo phase oscilloscope.
-* **Parametric Humanization Dial:** Continuously adjust from `0% (Raw AI Signal)` to `100% (Fully Humanized Master)`.
-
----
-
-## 🏗️ System Architecture
-
-NaSuno is architected according to strict **Hexagonal Architecture** principles, segregating public documentation, research, and client interfaces from the high-throughput core engine.
-
-```mermaid
-graph TD
-    subgraph PublicWrapper ["Public Interface & Specification (This Repository)"]
-        UI["Web Audio DSP Studio (docs/index.html)"]
-        SPECS["14-Vector Forensic Taxonomy (docs/research/)"]
-        ARCH["Hexagonal Architectural Rules (docs/architecture.md)"]
-    end
-
-    subgraph CoreEngine ["Private Core Engine (NaSuno-core)"]
-        DSP["Zero-Phase DSP Pipeline (C++ / Python)"]
-        PSYCHO["ISO 226 Perceptual Masking Kernel"]
-        TESTS["72-Test Forensic Verification Suite"]
-    end
-
-    UI -->|Evaluates Algorithms| SPECS
-    SPECS -->|Formal Constraints| ARCH
-    ARCH -.->|Implements Architecture| CoreEngine
-    DSP --> PSYCHO
-```
-
-* **Public Wrapper (`NaSuno`):** Hosts the live browser-based Web Audio DSP studio, mathematical research papers, forensic specifications, and architecture rules.
-* **Private Engine (`NaSuno-core`):** Contains the high-throughput C++/Python DSP pipeline, automated batch processing CLI, and the 72-test forensic validation test suite.
-
----
-
-## 📚 Research & Forensic Specifications
-
-All scientific research, mathematical derivations, and architecture documents are maintained in [`docs/`](docs/):
-
-* [**System Architecture Document**](docs/architecture.md) — Hexagonal ports and adapters, audio buffer contracts, and latency budgets.
-* [**Forensic Watermark Taxonomy**](docs/research/forensic-taxonomy.md) — Exhaustive analysis of Suno, Udio, and SynthID watermark vectors.
-* [**Psychoacoustics & Masking Reference**](docs/research/psychoacoustics-reference.md) — ISO 226 equal-loudness math and Bark-band calculations.
-* [**Master Evasion Strategy**](docs/research/master-evasion-plan.md) — Mathematical guarantees and differential audio test methodologies.
-* [**API Reference**](docs/api-reference.md) — Programmatic DSP contracts and parameters.
-* [**Development Roadmap**](docs/roadmap.md) — VST3/AU plugin targets and hardware DSP port plans.
-
----
-
-## 📁 Repository Structure
+## Repository structure
 
 ```text
-NaSuno/
-├── .github/
-│   ├── workflows/
-│   │   ├── ci.yml               # Documentation & JSON registry verification
-│   │   └── pages.yml            # Automated GitHub Pages web studio deployment
-│   ├── ISSUE_TEMPLATE/          # Bug reports and feature request templates
-│   ├── CODE_OF_CONDUCT.md       # Contributor Covenant standard
-│   ├── CONTRIBUTING.md          # Open-source contribution guidelines
-│   ├── SECURITY.md              # Vulnerability reporting protocol
-│   └── SUPPORT.md               # Developer contact & community channels
-├── docs/
-│   ├── assets/                  # Banners, logos, and UI imagery
-│   ├── audio/                   # Uncompressed before/after reference stems
-│   ├── modules/                 # Web Audio DSP pipeline modules
-│   ├── research/                # Mathematical & forensic research documents
-│   ├── architecture.md          # Formal engineering architecture specification
-│   ├── index.html               # Live Web Audio DSP Studio application
-│   ├── knob-registry.json       # Parameter definitions and DSP coefficients
-│   ├── style.css                # Dark skeuomorphic rack stylesheet
-│   └── sitemap.xml              # SEO discovery map
-├── CHANGELOG.md                 # Semantic version release notes
-├── LICENSE                      # MIT Open Source License
-└── README.md                    # Core project documentation
+aim/
+├── .github/                 CI (registry/syntax checks), Pages deploy, issue templates
+├── docs/                    the entire application (GitHub Pages root)
+│   ├── index.html           single-page studio
+│   ├── app.js               orchestration
+│   ├── modules/             analyzer / auto / dsp / spectrum / knob / registry / ui / storage
+│   ├── knob-registry.json   knob definitions, ranges, presets
+│   ├── style.css            dark skeuomorphic rack stylesheet
+│   ├── assets/              banners and UI imagery
+│   ├── audio/               demo stems (large test WAVs are not committed)
+│   └── superpowers/         specs and implementation plan
+├── bug-repro.mjs            regression suite: knob math and gain staging
+├── auto-repro.mjs           regression suite: meter, analysis, chain, AUTO, parity
+├── deshimmer-repro.mjs      regression suite: deshimmer
+├── track-report.mjs         WAV measurement tool
+├── CHANGELOG.md
+├── LICENSE                  MIT
+└── README.md
 ```
 
 ---
 
-## 🤝 Community & Governance
+## Known limits
 
-* **Direct Developer Contact:** [ahmadhassan.bted@gmail.com](mailto:ahmadhassan.bted@gmail.com)
-* **Bug Reports & Inquiries:** [Open an Issue](https://github.com/ai-news-tester/aim/issues)
-* **Security Advisories:** Review our [Security Policy](.github/SECURITY.md) for responsible disclosure procedures.
-* **Code of Conduct:** Please review our [Code of Conduct](.github/CODE_OF_CONDUCT.md).
+- Export is 16-bit PCM WAV only — no FLAC/MP3/OGG.
+- Manual `?v=` cache-bust on module imports must be bumped when modules change.
+- Changing the AUTO target re-runs the full calibration render (~30 s for a 4-minute track).
+- Loudness correction is reduction-only, so masters can sit well below the -1 dBTP ceiling; the Spotify gate is met either way.
+- Shimmer scoring is heuristic; the confidence gate keeps uncertain or clean tracks from being dulled.
 
----
+## Community
 
-<p align="center">
-  <sub>Engineered by <strong>Ahmad Hassan (B-Ted)</strong>. Dedicated to the preservation of human acoustic sovereignty and creative privacy.</sub>
-</p>
+- **Issues:** [github.com/ai-news-tester/aim/issues](https://github.com/ai-news-tester/aim/issues)
+- **Security:** see [SECURITY.md](.github/SECURITY.md)
+- **Contributing:** see [CONTRIBUTING.md](.github/CONTRIBUTING.md) and the [Code of Conduct](.github/CODE_OF_CONDUCT.md)
+
+Licensed under the [MIT License](LICENSE). Based on the NaSuno project; this repository is the maintained HUMANIZER studio fork.
