@@ -47,6 +47,7 @@ export class PersistenceManager {
   static clearSettings() {
     try {
       localStorage.removeItem(SETTINGS_KEY);
+      localStorage.removeItem(LEGACY_SETTINGS_KEY);
     } catch (e) {}
   }
 

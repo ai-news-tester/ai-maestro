@@ -83,11 +83,6 @@ button:focus-visible, input:focus-visible, select:focus-visible {
   justify-content: center;
 }
 
-.fl-flame {
-  color: var(--surface);
-  font-size: 15px;
-}
-
 .brand-text {
   display: flex;
   flex-direction: column;
@@ -1119,18 +1114,6 @@ button:focus-visible, input:focus-visible, select:focus-visible {
   gap: 8px;
 }
 
-.cli-command-box {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  color: var(--ink);
-  background: var(--paper);
-  border: 1px solid var(--hairline);
-  border-radius: 4px;
-  padding: 6px 8px;
-  max-width: 100%;
-  overflow-x: auto;
-}
-
 /* AUTO panel */
 .auto-panel {
   display: flex;
@@ -1303,8 +1286,5 @@ button:focus-visible, input:focus-visible, select:focus-visible {
   .export-cluster {
     flex-direction: column;
     align-items: stretch;
-  }
-  .cli-command-box {
-    max-width: 100%;
   }
 }

@@ -94,7 +94,7 @@ check('3 scopeCanvas has height', () => {
     const decls = [...body.matchAll(/(?:^|;)\s*height\s*:\s*([^;}]+)/g)];
     return decls.length ? decls[decls.length - 1][1].trim() : null;
   };
-  const nonZero = (h) => !/^0(?:\.0+)?(?:px|%|em|rem|vh|vw)?$/.test(h);
+  const nonZero = (h) => !/^0(?:\.0+)?(?:px|%|em|rem|vh|vw)?$/.test(h.replace(/\s*!important\s*$/i, ''));
   const heightsIn = (matches) => matches.map((r) => heightOf(r.body)).filter((h) => h !== null);
   // Boundary-aware like assertion 2: #scopeCanvasFrame must not stand in for #scopeCanvas.
   const explicit = heightsIn(rules.filter((r) => /#scopeCanvas(?![\w-])/.test(r.sel)));

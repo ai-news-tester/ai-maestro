@@ -88,4 +88,11 @@ const saved = stubStorage();
 PersistenceManager.saveSettings(newPayload);
 assert.equal(saved[NEW], JSON.stringify(newPayload), 'saveSettings did not write the new key');
 assert.ok(!(LEGACY in saved), 'saveSettings must never write the legacy key');
+
+// clearSettings must also remove the legacy key, else a legacy-only
+// user's cleared settings resurrect on the next loadSettings() fallback.
+const legacyOnly = stubStorage({ [LEGACY]: JSON.stringify(legacyPayload) });
+PersistenceManager.clearSettings();
+assert.equal(PersistenceManager.loadSettings(), null, 'clearSettings left the legacy key behind — settings resurrect');
+assert.ok(!(LEGACY in legacyOnly), 'clearSettings did not remove the legacy key');
 console.log('Storage fallback: PASS');
