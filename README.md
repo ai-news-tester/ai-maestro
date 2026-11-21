@@ -85,13 +85,16 @@ Presets: **Off** (bypass), **Gentle**, **Standard**, **Deep**, **Full**. Shift-d
 
 ## Run it
 
-No install, no build:
+No install, no build. Run this from the repository root — `--directory` serves the
+app folder directly, so it works without changing directories:
 
 ```bash
-cd docs
-python -m http.server 8123
+python -m http.server 8123 --directory docs
 # open http://127.0.0.1:8123/
 ```
+
+If the page shows a "Directory listing for /" instead of the studio, the server is
+serving the repo root rather than `docs/` — add `--directory docs` as above.
 
 Or use the hosted studio: **https://ai-news-tester.github.io/ai-maestro/**
 

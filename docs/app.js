@@ -161,7 +161,7 @@ function updateTelemetryUI(carrier, stego, spec, buffer) {
     if (c1Freq) c1Freq.textContent = `${(c1.freqHz / 1000).toFixed(2)} kHz`;
     if (c1Prom) {
       c1Prom.textContent = `+${c1.prominenceDB.toFixed(2)} dB`;
-      c1Prom.style.color = c1.prominenceDB > 3.0 ? 'var(--fl-red)' : 'var(--text-dim)';
+      c1Prom.style.color = c1.prominenceDB > 3.0 ? 'var(--brick)' : 'var(--muted)';
     }
     if (c1Bar) {
       c1Bar.style.width = `${Math.min(100, Math.round(c1.confidence * 100))}%`;
@@ -178,7 +178,7 @@ function updateTelemetryUI(carrier, stego, spec, buffer) {
     if (c2Freq) c2Freq.textContent = `${(c2.freqHz / 1000).toFixed(2)} kHz`;
     if (c2Prom) {
       c2Prom.textContent = `+${c2.prominenceDB.toFixed(2)} dB`;
-      c2Prom.style.color = c2.prominenceDB > 3.0 ? 'var(--fl-red)' : 'var(--text-dim)';
+      c2Prom.style.color = c2.prominenceDB > 3.0 ? 'var(--brick)' : 'var(--muted)';
     }
     if (c2Bar) {
       c2Bar.style.width = `${Math.min(100, Math.round(c2.confidence * 100))}%`;
@@ -195,7 +195,7 @@ function updateTelemetryUI(carrier, stego, spec, buffer) {
     if (c3Freq) c3Freq.textContent = `${(c3.freqHz / 1000).toFixed(2)} kHz`;
     if (c3Prom) {
       c3Prom.textContent = `+${c3.prominenceDB.toFixed(2)} dB`;
-      c3Prom.style.color = c3.prominenceDB > 3.0 ? 'var(--fl-red)' : 'var(--text-dim)';
+      c3Prom.style.color = c3.prominenceDB > 3.0 ? 'var(--brick)' : 'var(--muted)';
     }
     if (c3Bar) {
       c3Bar.style.width = `${Math.min(100, Math.round(c3.confidence * 100))}%`;
@@ -212,7 +212,7 @@ function updateTelemetryUI(carrier, stego, spec, buffer) {
     if (echoDelay) echoDelay.textContent = `${topEcho.delayMs.toFixed(2)} ms`;
     if (echoScore) {
       echoScore.textContent = `MAD ${topEcho.score.toFixed(2)}`;
-      echoScore.style.color = topEcho.score > 3.5 ? 'var(--fl-red)' : 'var(--text-dim)';
+      echoScore.style.color = topEcho.score > 3.5 ? 'var(--brick)' : 'var(--muted)';
     }
     if (echoBar) {
       echoBar.style.width = `${Math.min(100, Math.round(stego.confidence * 100))}%`;
@@ -222,7 +222,7 @@ function updateTelemetryUI(carrier, stego, spec, buffer) {
     if (echoDelay) echoDelay.textContent = 'None';
     if (echoScore) {
       echoScore.textContent = 'MAD 0.00';
-      echoScore.style.color = 'var(--text-dim)';
+      echoScore.style.color = 'var(--muted)';
     }
     if (echoBar) {
       echoBar.style.width = '0%';
@@ -752,6 +752,22 @@ function setupExportWAV() {
 }
 
 // ============================================================================
+// Theme Toggle (night default, day opt-in, persisted)
+// ============================================================================
+function setupThemeToggle() {
+  const btn = document.getElementById('themeToggleBtn');
+  if (!btn) return;
+  btn.addEventListener('click', () => {
+    const root = document.documentElement;
+    const next = root.dataset.theme === 'night' ? 'day' : 'night';
+    root.dataset.theme = next;
+    try { localStorage.setItem('maestro_theme', next); } catch (_) {}
+    const meta = document.querySelector('meta[name="theme-color"]');
+    if (meta) meta.setAttribute('content', next === 'night' ? '#14161a' : '#f7f6f3');
+  });
+}
+
+// ============================================================================
 // Application Boot
 // ============================================================================
 document.addEventListener('DOMContentLoaded', async () => {
@@ -939,6 +955,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     // 7. WAV Export setup
     setupExportWAV();
     setupAutoControls();
+    setupThemeToggle();
 
     // 8. Playback Seeker / Scrubber setup
     setupSeekerControls();
