@@ -95,7 +95,7 @@ export class MaestroDSP {
     this.wetGain = null;
     this.dryGain = null;
     this.rawAnalyser = null; // Pre-DSP raw audio analyser (faded ghost trace)
-    this.analyser = null;    // Post-DSP processed analyser (vivid cyan trace)
+    this.analyser = null;    // Post-DSP processed analyser (ochre trace)
 
     // Cache of active parameters
     this.params = {

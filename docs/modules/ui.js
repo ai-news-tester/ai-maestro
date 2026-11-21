@@ -199,8 +199,8 @@ export class UIController {
       </div>
       <div class="popover-section">
         <div class="popover-section-title">MODES OF OPERATION</div>
-        <p><strong>• DSP ACTIVE (Green LED) [Recommended]</strong>: The full 14-stage chain runs live in your browser. Notch and peaking filters, all-pass stages, waveshapers, the modulated delay, the room taps, the compressor and the limiter are all applied to the audio stream as you turn the knobs.</p>
-        <p style="margin-top: 8px;"><strong>• BYPASS (RAW) (Red/Dim LED)</strong>: Crossfades around all 14 stages and routes the original signal straight to your speakers. Use it to hear exactly what the chain changed.</p>
+        <p><strong>• DSP ACTIVE (Green LED) [Recommended]</strong>: The full processing chain runs live in your browser. Notch and peaking filters, all-pass stages, waveshapers, the modulated delay, the room taps, the compressor and the limiter are all applied to the audio stream as you turn the knobs.</p>
+        <p style="margin-top: 8px;"><strong>• BYPASS (RAW) (Red/Dim LED)</strong>: Crossfades around the whole chain and routes the original signal straight to your speakers. Use it to hear exactly what the chain changed.</p>
       </div>
       <div class="popover-section">
         <div class="popover-section-title">HOW TO USE</div>
