@@ -89,7 +89,7 @@ export class AudioMath {
    * @param {Float32Array} samples – mono PCM
    * @param {number} nfft – FFT size (must be power of 2)
    * @param {number} hop – hop length
-   * @returns {{ magnitudes: Float64Array[], freqs: Float64Array }}
+   * @returns {{ magnitudes: Float64Array[] }}
    */
   static stft(samples, nfft = 4096, hop = 1024) {
     const win = this.hannWindow(nfft);
@@ -100,12 +100,7 @@ export class AudioMath {
       const segment = samples.slice(offset, offset + nfft);
       magnitudes.push(this.magnitudeSpectrum(segment, win));
     }
-    const halfN = (nfft >> 1) + 1;
-    const freqs = new Float64Array(halfN);
-    for (let k = 0; k < halfN; k++) {
-      freqs[k] = k;
-    }
-    return { magnitudes, freqs };
+    return { magnitudes };
   }
 
   /**

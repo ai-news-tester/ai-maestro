@@ -5,7 +5,7 @@
  */
 
 import { CarrierDetector, StegoDetector, SpectralAnalyzer } from './modules/analyzer.js';
-import { MaestroDSP } from './modules/dsp.js?v=10'; // shortcut: manual ?v= cache-bust, bump when dsp.js changes
+import { MaestroDSP } from './modules/dsp.js?v=11'; // shortcut: manual ?v= cache-bust, bump when dsp.js changes
 import { mapAutoReport } from './modules/auto.js';
 import { SpectrumRenderer, buildAutoIssues } from './modules/spectrum.js';
 import { UIController } from './modules/ui.js';
@@ -688,7 +688,7 @@ function setupAutoControls() {
   const origBtn = document.getElementById('playOriginalBtn');
   if (origBtn) origBtn.addEventListener('click', () => { if (dsp) dsp.setBypass(true); if (ui) ui.setBypassState(true); if (!isPlaying) startPlayback(); });
   const autoPlayBtn = document.getElementById('playAutoBtn');
-  if (autoPlayBtn) autoPlayBtn.addEventListener('click', () => { if (dsp) dsp.setBypass(false); if (ui) ui.setBypassState(false); if (isPlaying) startPlayback(); else startPlayback(); });
+  if (autoPlayBtn) autoPlayBtn.addEventListener('click', () => { if (dsp) dsp.setBypass(false); if (ui) ui.setBypassState(false); startPlayback(); });
   const revertBtn = document.getElementById('revertManualBtn');
   if (revertBtn) revertBtn.addEventListener('click', () => { autoParams = null; autoReport = null; autoIssues = []; if (dsp) Object.assign(dsp.params, { autoTrimDb: 0, integratedLUFS: null, sibilance: 0, hfCutoff: 0, correlation: 1, msBass: 0, crestFactorDB: 12 }); if (spectrum) spectrum.setAutoIssues([]); renderAutoIssues([]); applyPreset(lastManualPreset || 'standardEvasion'); if (isPlaying) startPlayback(); setAutoProgress('Reverted to manual preset'); });
 }

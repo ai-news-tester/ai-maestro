@@ -59,6 +59,14 @@ assert.equal(r.duration, 4, 'duration');
 assert.equal(r.sampleRate, SR, 'sampleRate');
 assert.ok(Number.isFinite(r.integratedLUFS), 'integrated LUFS finite for non-silent track');
 
+// MONO parity: measureRender must use analyzeFullTrack's dual-mono convention,
+// otherwise AUTO's trim under-measures by 3.01 dB and exports too loud.
+const monoBuf = fakeBuffer([sine], SR);
+const monoReport = SpectralAnalyzer.analyzeFullTrack(monoBuf).integratedLUFS;
+const monoRender = MaestroDSP.measureRender(monoBuf).integratedLUFS;
+console.log('mono parity: report', monoReport, 'render', monoRender);
+assert.ok(Math.abs(monoReport - monoRender) < 0.05, `mono report ${monoReport} vs render ${monoRender} must agree`);
+
 // silence / short buffer: no NaN anywhere, shimmer 0
 const shortR = SpectralAnalyzer.analyzeFullTrack(fakeBuffer([new Float32Array(1024), new Float32Array(1024)], SR));
 assert.equal(shortR.shimmer.score, 0, 'short buffer shimmer 0');

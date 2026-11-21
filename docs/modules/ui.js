@@ -9,8 +9,6 @@ export class UIController {
     this.onPresetSelect = options.onPresetSelect || (() => {});
     this.onBypassToggle = options.onBypassToggle || (() => {});
 
-    this.activePopoverKnob = null;
-
     this.initPopovers();
     this.initPresetDropdown();
     this.initBypassToggle();
@@ -138,8 +136,6 @@ export class UIController {
   // ==========================================================================
   initBypassToggle() {
     const bypassBtn = document.getElementById('bypassBtn');
-    const bypassLed = document.getElementById('bypassLed');
-    const bypassText = document.getElementById('bypassText');
     const dspInfoBtn = document.getElementById('dspInfoBtn');
 
     if (dspInfoBtn) {

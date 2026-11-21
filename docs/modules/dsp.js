@@ -274,159 +274,15 @@ export class MaestroDSP {
   // MASTER_CHAIN_END
 
   /**
-   * Initialize all 14 DSP nodes in the provided AudioContext.
+   * Initialize bypass routing, dual analysers, and the shared chain
+   * (every processing node is created by buildMasterChain).
    * @param {AudioContext} ctx
    */
   init(ctx) {
     this.ctx = ctx;
     const now = ctx.currentTime;
 
-    // 1. Stride Remove (peaking cuts at 172.3 Hz & 344.6 Hz - safe high-fidelity cut)
-    this.stride1 = ctx.createBiquadFilter();
-    this.stride1.type = 'peaking';
-    this.stride1.frequency.setValueAtTime(172.3, now);
-    this.stride1.Q.setValueAtTime(6.0, now);
-    this.stride1.gain.setValueAtTime(-3.5, now);
-
-    this.stride2 = ctx.createBiquadFilter();
-    this.stride2.type = 'peaking';
-    this.stride2.frequency.setValueAtTime(344.6, now);
-    this.stride2.Q.setValueAtTime(7.0, now);
-    this.stride2.gain.setValueAtTime(-2.45, now);
-
-    // 2. Stego Strip (peaking cut at 3800 Hz)
-    this.stegoComb = ctx.createBiquadFilter();
-    this.stegoComb.type = 'peaking';
-    this.stegoComb.frequency.setValueAtTime(3800, now);
-    this.stegoComb.Q.setValueAtTime(3.0, now);
-    this.stegoComb.gain.setValueAtTime(-3.6, now);
-
-    // 3. Carrier Notches (15.5k, 17.5k, 19.5k)
-    this.notch1 = ctx.createBiquadFilter();
-    this.notch1.type = 'notch';
-    this.notch1.frequency.setValueAtTime(15500, now);
-    this.notch1.Q.setValueAtTime(17.0, now);
-
-    this.notch2 = ctx.createBiquadFilter();
-    this.notch2.type = 'notch';
-    this.notch2.frequency.setValueAtTime(17500, now);
-    this.notch2.Q.setValueAtTime(14.5, now);
-
-    this.notch3 = ctx.createBiquadFilter();
-    this.notch3.type = 'notch';
-    this.notch3.frequency.setValueAtTime(19500, now);
-    this.notch3.Q.setValueAtTime(12.0, now);
-
-    // 4. Neural Scrub (high-shelf calibrated to preserve musical air)
-    this.neuralFilter = ctx.createBiquadFilter();
-    this.neuralFilter.type = 'highshelf';
-    this.neuralFilter.frequency.setValueAtTime(15400, now);
-    this.neuralFilter.gain.setValueAtTime(-5.4, now);
-
-    // Deshimmer (gentle HF shelf at 10 kHz)
-    this.deshimmerShelf = ctx.createBiquadFilter();
-    this.deshimmerShelf.type = 'highshelf';
-    this.deshimmerShelf.frequency.setValueAtTime(10000, now);
-    this.deshimmerShelf.Q.setValueAtTime(0.7, now);
-    this.deshimmerShelf.gain.setValueAtTime(0, now);
-
-    // 5. Spectral Blend (peaking cuts at 4200 Hz & 7600 Hz)
-    this.blendFilter1 = ctx.createBiquadFilter();
-    this.blendFilter1.type = 'peaking';
-    this.blendFilter1.frequency.setValueAtTime(4200, now);
-    this.blendFilter1.Q.setValueAtTime(2.0, now);
-    this.blendFilter1.gain.setValueAtTime(-2.4, now);
-
-    this.blendFilter2 = ctx.createBiquadFilter();
-    this.blendFilter2.type = 'peaking';
-    this.blendFilter2.frequency.setValueAtTime(7600, now);
-    this.blendFilter2.Q.setValueAtTime(2.5, now);
-    this.blendFilter2.gain.setValueAtTime(-2.8, now);
-
-    // 6. Phase Scatter (3-stage all-pass phase dispersion network)
-    this.allpass1 = ctx.createBiquadFilter();
-    this.allpass1.type = 'allpass';
-    this.allpass1.frequency.setValueAtTime(850, now);
-    this.allpass1.Q.setValueAtTime(1.8, now);
-
-    this.allpass2 = ctx.createBiquadFilter();
-    this.allpass2.type = 'allpass';
-    this.allpass2.frequency.setValueAtTime(2400, now);
-    this.allpass2.Q.setValueAtTime(2.2, now);
-
-    this.allpass3 = ctx.createBiquadFilter();
-    this.allpass3.type = 'allpass';
-    this.allpass3.frequency.setValueAtTime(6800, now);
-    this.allpass3.Q.setValueAtTime(2.6, now);
-
-    // 7. Stat Normalize (soft-knee waveshaper)
-    this.statShaper = ctx.createWaveShaper();
-    this.statShaper.curve = MaestroDSP.makeStatCurve(0.4);
-    this.statShaper.oversample = '2x';
-
-    // 8. Hash Break (3 ms delay modulated by a subtle sine LFO)
-    this.hashDelay = ctx.createDelay(0.05);
-    this.hashDelay.delayTime.setValueAtTime(0.003, now);
-
-    this.hashLfo = ctx.createOscillator();
-    this.hashLfo.type = 'sine';
-    this.hashLfo.frequency.setValueAtTime(0.415, now);
-
-    this.hashLfoGain = ctx.createGain();
-    this.hashLfoGain.gain.setValueAtTime(0.00061, now); // ~0.61ms safe micro-warp
-
-    this.hashLfo.connect(this.hashLfoGain);
-    this.hashLfoGain.connect(this.hashDelay.delayTime);
-    try {
-      this.hashLfo.start(now);
-    } catch (_) {}
-
-    // 9. Room Inject (two early delay taps - subtle room ambiance)
-    this.roomSend = ctx.createGain();
-    this.roomSend.gain.setValueAtTime(1.0, now);
-
-    this.roomDelay1 = ctx.createDelay(0.1);
-    this.roomDelay1.delayTime.setValueAtTime(0.016, now); // 16ms early tap
-
-    this.roomDelay2 = ctx.createDelay(0.1);
-    this.roomDelay2.delayTime.setValueAtTime(0.031, now); // 31ms second tap
-
-    this.roomFilter = ctx.createBiquadFilter();
-    this.roomFilter.type = 'lowpass';
-    this.roomFilter.frequency.setValueAtTime(4200, now);
-
-    this.roomReturn = ctx.createGain();
-    this.roomReturn.gain.setValueAtTime(0.0875, now); // 8.75% subtle room injection
-
-    this.roomMixBus = ctx.createGain();
-    this.roomMixBus.gain.setValueAtTime(1.0, now);
-
-    // 10. Texture Inject (analog harmonic tape/tube saturation exciter)
-    this.textureShaper = ctx.createWaveShaper();
-    this.textureShaper.curve = MaestroDSP.makeTextureCurve(0.35);
-    this.textureShaper.oversample = '2x';
-
-    // 11. Bandwidth Heal (air-band high shelf)
-    this.shelf = ctx.createBiquadFilter();
-    this.shelf.type = 'highshelf';
-    this.shelf.frequency.setValueAtTime(12000, now);
-    this.shelf.gain.setValueAtTime(0.25, now);
-
-    // 12. Dynamics Naturalizer (studio feed-forward compressor - transparent bus dynamics)
-    this.dynamicsComp = ctx.createDynamicsCompressor();
-    this.dynamicsComp.threshold.setValueAtTime(-13.2, now);
-    this.dynamicsComp.knee.setValueAtTime(10.0, now);
-    this.dynamicsComp.ratio.setValueAtTime(2.5, now);
-    this.dynamicsComp.attack.setValueAtTime(0.025, now);
-    this.dynamicsComp.release.setValueAtTime(0.14, now);
-
-    // 13. Quality Gate (brickwall safety limiter preventing digital overs)
-    this.qualityLimiter = ctx.createDynamicsCompressor();
-    this.qualityLimiter.threshold.setValueAtTime(-0.8, now);
-    this.qualityLimiter.knee.setValueAtTime(0.0, now); // hard knee
-    this.qualityLimiter.ratio.setValueAtTime(20.0, now); // brickwall
-    this.qualityLimiter.attack.setValueAtTime(0.003, now);
-    this.qualityLimiter.release.setValueAtTime(0.05, now);
+    // Stages 1-13 are created and parameterised by buildMasterChain below.
 
     // 14. Output Gain & Bypass routing
     this.outGain = ctx.createGain();
@@ -642,50 +498,6 @@ export class MaestroDSP {
   }
 
   /**
-   * Disconnect all nodes safely.
-   */
-  disconnect() {
-    try {
-      if (this.source) this.source.disconnect();
-      if (this.stride1) this.stride1.disconnect();
-      if (this.stride2) this.stride2.disconnect();
-      if (this.stegoComb) this.stegoComb.disconnect();
-      if (this.notch1) this.notch1.disconnect();
-      if (this.notch2) this.notch2.disconnect();
-      if (this.notch3) this.notch3.disconnect();
-      if (this.neuralFilter) this.neuralFilter.disconnect();
-      if (this.blendFilter1) this.blendFilter1.disconnect();
-      if (this.blendFilter2) this.blendFilter2.disconnect();
-      if (this.allpass1) this.allpass1.disconnect();
-      if (this.allpass2) this.allpass2.disconnect();
-      if (this.allpass3) this.allpass3.disconnect();
-      if (this.statShaper) this.statShaper.disconnect();
-      if (this.hashDelay) this.hashDelay.disconnect();
-      if (this.roomSend) this.roomSend.disconnect();
-      if (this.roomDelay1) this.roomDelay1.disconnect();
-      if (this.roomDelay2) this.roomDelay2.disconnect();
-      if (this.roomFilter) this.roomFilter.disconnect();
-      if (this.roomReturn) this.roomReturn.disconnect();
-      if (this.roomMixBus) this.roomMixBus.disconnect();
-      if (this.textureShaper) this.textureShaper.disconnect();
-      if (this.shelf) this.shelf.disconnect();
-      if (this.dynamicsComp) this.dynamicsComp.disconnect();
-      if (this.qualityLimiter) this.qualityLimiter.disconnect();
-      if (this.deshimmerShelf) this.deshimmerShelf.disconnect();
-      if (this.deesser) this.deesser.disconnect();
-      if (this.airShelf) this.airShelf.disconnect();
-      if (this.monoLows) this.monoLows.disconnect();
-      if (this.loudnessGain) this.loudnessGain.disconnect();
-      if (this.truePeakLimiter) this.truePeakLimiter.disconnect();
-      if (this.wetGain) this.wetGain.disconnect();
-      if (this.dryGain) this.dryGain.disconnect();
-      if (this.outGain) this.outGain.disconnect();
-      if (this.rawAnalyser) this.rawAnalyser.disconnect();
-      if (this.analyser) this.analyser.disconnect();
-    } catch (_) {}
-  }
-
-  /**
    * Export processed AudioBuffer to 16-bit PCM WAV using OfflineAudioContext.
    * Runs the complete 14-node processing cascade offline with current settings,
    * or exports pristine unadulterated PCM directly if in bypass mode.
@@ -708,7 +520,9 @@ export class MaestroDSP {
 
   /** Measure a rendered buffer with the same BS.1770 meter the report uses. */
   static measureRender(buffer) {
-    return SpectralAnalyzer.measureLoudness(buffer.getChannelData(0), buffer.numberOfChannels > 1 ? buffer.getChannelData(1) : null, buffer.sampleRate);
+    const left = buffer.getChannelData(0);
+    // Mono is dual-mono here, matching analyzeFullTrack (a null right reads 3 dB low).
+    return SpectralAnalyzer.measureLoudness(left, buffer.numberOfChannels > 1 ? buffer.getChannelData(1) : left, buffer.sampleRate);
   }
 
   static async exportWAV(audioBuffer, params = {}, isBypassed = false) {

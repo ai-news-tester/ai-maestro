@@ -7,21 +7,21 @@
 export class FLKnob {
   /**
    * @param {HTMLElement} element - Knob DOM container
-   * @param {Object} options - Optional configuration overrides
+   * @param {Object} options - knob id, range, step, default, value, unit, readout element
    */
   constructor(element, options = {}) {
     this.el = element;
-    this.knobId = options.knobId || element.dataset.knob;
-    this.min = options.min !== undefined ? options.min : parseFloat(element.dataset.min ?? 0);
-    this.max = options.max !== undefined ? options.max : parseFloat(element.dataset.max ?? 100);
-    this.step = options.step !== undefined ? options.step : parseFloat(element.dataset.step ?? 1);
-    this.defaultVal = options.default !== undefined ? options.default : parseFloat(element.dataset.default ?? element.dataset.val ?? this.min);
-    this.val = options.val !== undefined ? options.val : parseFloat(element.dataset.val ?? this.defaultVal);
-    this.unit = options.unit !== undefined ? options.unit : (element.dataset.unit || '');
+    this.knobId = options.knobId;
+    this.min = options.min;
+    this.max = options.max;
+    this.step = options.step;
+    this.defaultVal = options.default;
+    this.val = options.val;
+    this.unit = options.unit;
 
     this.rotor = element.querySelector('.knob-rotor');
     this.ring = element.querySelector('.ring-active');
-    this.readout = options.readoutEl || document.getElementById(`readout_${this.knobId}`);
+    this.readout = options.readoutEl;
 
     this.startY = 0;
     this.startVal = 0;
@@ -36,8 +36,8 @@ export class FLKnob {
 
     // Mouse drag
     this.el.addEventListener('mousedown', (e) => {
-      // Don't drag if clicking an info button or badge
-      if (e.target.closest('.info-btn') || e.target.closest('.badge-custom')) return;
+      // Don't drag if clicking the info button
+      if (e.target.closest('.info-btn')) return;
       this.onStart(e.clientY);
     });
 
@@ -49,7 +49,7 @@ export class FLKnob {
 
     // Touch drag
     this.el.addEventListener('touchstart', (e) => {
-      if (e.target.closest('.info-btn') || e.target.closest('.badge-custom')) return;
+      if (e.target.closest('.info-btn')) return;
       if (e.touches.length === 1) this.onStart(e.touches[0].clientY);
     }, { passive: true });
 
@@ -69,7 +69,7 @@ export class FLKnob {
 
     // Double-click reset to default
     this.el.addEventListener('dblclick', (e) => {
-      if (e.target.closest('.info-btn') || e.target.closest('.badge-custom')) return;
+      if (e.target.closest('.info-btn')) return;
       this.setValue(this.defaultVal, true);
     });
   }
@@ -129,10 +129,6 @@ export class FLKnob {
       for (const cb of this.listeners) {
         cb(this.val, this.knobId);
       }
-      this.el.dispatchEvent(new CustomEvent('knob:change', {
-        bubbles: true,
-        detail: { knobId: this.knobId, val: this.val }
-      }));
     }
   }
 
@@ -153,27 +149,25 @@ export class FLKnob {
     }
 
     if (this.readout) {
-      {
-        let displayStr = '';
-        if (this.unit === 'Hz') {
-          displayStr = `${Math.round(this.val)} Hz`;
-        } else if (this.unit === 'dB') {
-          const sign = this.val > 0 ? '+' : '';
-          const stepStr = String(this.step);
-          const stepDec = stepStr.includes('.') ? stepStr.split('.')[1].length : 0;
-          const dec = this.val % 1 === 0 ? 0 : stepDec;
-          displayStr = `${sign}${this.val.toFixed(dec)} dB`;
-        } else if (this.unit === '%') {
-          displayStr = `${Number.isInteger(this.val) ? Math.round(this.val) : this.val.toFixed(1)}%`;
-        } else {
-          const stepStr = String(this.step);
-          const stepDec = stepStr.includes('.') ? stepStr.split('.')[1].length : 0;
-          const valDec = String(this.val).includes('.') ? String(this.val).split('.')[1].length : 0;
-          const dec = Math.max(stepDec, valDec); // fine-tuned value may carry more decimals than step
-          displayStr = `${this.val.toFixed(dec)}${this.unit ? ' ' + this.unit : ''}`;
-        }
-        this.readout.textContent = displayStr;
+      let displayStr = '';
+      if (this.unit === 'Hz') {
+        displayStr = `${Math.round(this.val)} Hz`;
+      } else if (this.unit === 'dB') {
+        const sign = this.val > 0 ? '+' : '';
+        const stepStr = String(this.step);
+        const stepDec = stepStr.includes('.') ? stepStr.split('.')[1].length : 0;
+        const dec = this.val % 1 === 0 ? 0 : stepDec;
+        displayStr = `${sign}${this.val.toFixed(dec)} dB`;
+      } else if (this.unit === '%') {
+        displayStr = `${Number.isInteger(this.val) ? Math.round(this.val) : this.val.toFixed(1)}%`;
+      } else {
+        const stepStr = String(this.step);
+        const stepDec = stepStr.includes('.') ? stepStr.split('.')[1].length : 0;
+        const valDec = String(this.val).includes('.') ? String(this.val).split('.')[1].length : 0;
+        const dec = Math.max(stepDec, valDec); // fine-tuned value may carry more decimals than step
+        displayStr = `${this.val.toFixed(dec)}${this.unit ? ' ' + this.unit : ''}`;
       }
+      this.readout.textContent = displayStr;
     }
   }
 }

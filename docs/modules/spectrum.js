@@ -9,7 +9,7 @@
 
 import { SIBILANCE_THRESHOLD } from './auto.js';
 
-const AUTO_RANGES = { carrierErase: [0, 100, 1], strideRemove: [0, 100, 1], stegoStrip: [0, 100, 1], neuralScrub: [0, 100, 1], spectralBlend: [0, 100, 1], phaseScatter: [0, 100, 1], statNormalize: [0, 100, 1], hashBreak: [0, 100, 1], roomInject: [0, 100, 1], textureInject: [0, 100, 1], deshimmer: [0, 100, 1], bandwidthHeal: [-6, 6, 0.25], dynamicsNatural: [0, 100, 1], qualityGate: [1, 6, 0.1], outputGain: [-12, 6, 0.5] };
+const AUTO_RANGES = { carrierErase: [0, 100, 1], stegoStrip: [0, 100, 1], spectralBlend: [0, 100, 1], deshimmer: [0, 100, 1], bandwidthHeal: [-6, 6, 0.25], dynamicsNatural: [0, 100, 1], qualityGate: [1, 6, 0.1], outputGain: [-12, 6, 0.5] };
 function clamp01(v) { return Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : 0; }
 
 /**
@@ -28,12 +28,11 @@ export function buildAutoIssues(report = {}, params = {}, reasons = {}, targetLU
   const issues = [];
   const add = (o) => {
     const range = AUTO_RANGES[o.knobId] || [0, 100, 1];
-    const ranges = o.timeRanges || whole;
     issues.push({
       id: o.id || o.knobId, name: o.name,
       freqLo: o.freqLo !== undefined ? o.freqLo : null,
       freqHi: o.freqHi !== undefined ? o.freqHi : null,
-      timeRanges: ranges, timeStart: ranges[0] ? ranges[0].start : 0, timeEnd: ranges[0] ? ranges[0].end : duration,
+      timeStart: whole[0] ? whole[0].start : 0, timeEnd: whole[0] ? whole[0].end : duration,
       measured: o.measured, target: o.target, unit: o.unit || '', severity: clamp01(o.severity),
       knobId: o.knobId || null,
       sliderDefault: o.knobId ? (p[o.knobId] !== undefined && p[o.knobId] !== null ? p[o.knobId] : 0) : (o.sliderDefault !== undefined ? o.sliderDefault : 0),
@@ -142,14 +141,6 @@ export class SpectrumRenderer {
       this.animId = requestAnimationFrame(render);
     };
     this.animId = requestAnimationFrame(render);
-  }
-
-  stop() {
-    this.isRunning = false;
-    if (this.animId) {
-      cancelAnimationFrame(this.animId);
-      this.animId = null;
-    }
   }
 
   setAutoIssues(issues) {

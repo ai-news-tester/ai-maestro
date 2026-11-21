@@ -1,13 +1,10 @@
 {
-  "version": "2.4",
-  "description": "AI-Maestro Single Source of Truth Knob & Parameter Registry",
   "compositeKnobs": [
     {
       "id": "carrierErase",
       "label": "CARRIER ERASE",
       "module": "watermarkErase",
       "moduleTitle": "RESONANCE CLEANUP",
-      "moduleSubtitle": "Notch and peaking cuts at measured resonances",
       "ring": "cyan",
       "min": 0,
       "max": 100,
@@ -28,7 +25,6 @@
       "label": "STRIDE REMOVE",
       "module": "watermarkErase",
       "moduleTitle": "RESONANCE CLEANUP",
-      "moduleSubtitle": "Notch and peaking cuts at measured resonances",
       "ring": "cyan",
       "min": 0,
       "max": 100,
@@ -49,7 +45,6 @@
       "label": "STEGO STRIP",
       "module": "watermarkErase",
       "moduleTitle": "RESONANCE CLEANUP",
-      "moduleSubtitle": "Notch and peaking cuts at measured resonances",
       "ring": "cyan",
       "min": 0,
       "max": 100,
@@ -70,7 +65,6 @@
       "label": "NEURAL SCRUB",
       "module": "watermarkErase",
       "moduleTitle": "RESONANCE CLEANUP",
-      "moduleSubtitle": "Notch and peaking cuts at measured resonances",
       "ring": "cyan",
       "min": 0,
       "max": 100,
@@ -91,7 +85,6 @@
       "label": "SPECTRAL BLEND",
       "module": "fingerprintScatter",
       "moduleTitle": "PHASE & TEXTURE",
-      "moduleSubtitle": "Phase dispersion, soft shaping and micro delay",
       "ring": "cyan",
       "min": 0,
       "max": 100,
@@ -112,7 +105,6 @@
       "label": "PHASE SCATTER",
       "module": "fingerprintScatter",
       "moduleTitle": "PHASE & TEXTURE",
-      "moduleSubtitle": "Phase dispersion, soft shaping and micro delay",
       "ring": "cyan",
       "min": 0,
       "max": 100,
@@ -133,7 +125,6 @@
       "label": "STAT NORMALIZE",
       "module": "fingerprintScatter",
       "moduleTitle": "PHASE & TEXTURE",
-      "moduleSubtitle": "Phase dispersion, soft shaping and micro delay",
       "ring": "cyan",
       "min": 0,
       "max": 100,
@@ -154,7 +145,6 @@
       "label": "HASH BREAK",
       "module": "fingerprintScatter",
       "moduleTitle": "PHASE & TEXTURE",
-      "moduleSubtitle": "Phase dispersion, soft shaping and micro delay",
       "ring": "cyan",
       "min": 0,
       "max": 100,
@@ -175,7 +165,6 @@
       "label": "ROOM INJECT",
       "module": "naturalization",
       "moduleTitle": "NATURALIZATION",
-      "moduleSubtitle": "Room reflections, harmonic texture and air band",
       "ring": "green",
       "min": 0,
       "max": 100,
@@ -196,7 +185,6 @@
       "label": "TEXTURE INJECT",
       "module": "naturalization",
       "moduleTitle": "NATURALIZATION",
-      "moduleSubtitle": "Room reflections, harmonic texture and air band",
       "ring": "green",
       "min": 0,
       "max": 100,
@@ -217,7 +205,6 @@
       "label": "DESHIMMER",
       "module": "naturalization",
       "moduleTitle": "NATURALIZATION",
-      "moduleSubtitle": "Room reflections, harmonic texture and air band",
       "ring": "green",
       "min": 0,
       "max": 100,
@@ -238,7 +225,6 @@
       "label": "BANDWIDTH HEAL",
       "module": "naturalization",
       "moduleTitle": "NATURALIZATION",
-      "moduleSubtitle": "Room reflections, harmonic texture and air band",
       "ring": "green",
       "min": -6,
       "max": 6,
@@ -259,7 +245,6 @@
       "label": "DYNAMICS",
       "module": "masteringQuality",
       "moduleTitle": "MASTERING",
-      "moduleSubtitle": "Bus compression, limiter ceiling and output gain",
       "ring": "orange",
       "min": 0,
       "max": 100,
@@ -280,7 +265,6 @@
       "label": "QUALITY GATE",
       "module": "masteringQuality",
       "moduleTitle": "MASTERING",
-      "moduleSubtitle": "Bus compression, limiter ceiling and output gain",
       "ring": "orange",
       "min": 1,
       "max": 6,
@@ -301,7 +285,6 @@
       "label": "OUTPUT",
       "module": "masteringQuality",
       "moduleTitle": "MASTERING",
-      "moduleSubtitle": "Bus compression, limiter ceiling and output gain",
       "ring": "orange",
       "min": -12,
       "max": 6,
@@ -321,7 +304,6 @@
   "presets": {
     "off": {
       "name": "Off",
-      "description": "No processing - the original audio plays straight through",
       "compositeValues": {
         "carrierErase": 0,
         "strideRemove": 0,
@@ -342,7 +324,6 @@
     },
     "lowProfile": {
       "name": "Gentle",
-      "description": "Light EQ and shaping, maximum fidelity",
       "compositeValues": {
         "carrierErase": 20,
         "strideRemove": 15,
@@ -363,7 +344,6 @@
     },
     "standardEvasion": {
       "name": "Standard",
-      "description": "Balanced cleanup and mastering for streaming and release",
       "compositeValues": {
         "carrierErase": 50,
         "strideRemove": 35,
@@ -384,7 +364,6 @@
     },
     "deepClean": {
       "name": "Deep",
-      "description": "Stronger cuts and shaping for tracks with measured resonances",
       "compositeValues": {
         "carrierErase": 75,
         "strideRemove": 55,
@@ -405,7 +384,6 @@
     },
     "fullScrub": {
       "name": "Full",
-      "description": "Maximum processing depth across every stage",
       "compositeValues": {
         "carrierErase": 95,
         "strideRemove": 80,
