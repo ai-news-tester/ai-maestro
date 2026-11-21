@@ -134,8 +134,6 @@ docs/modules/
 - AUTO-only parameters (de-esser, air shelf, M/S bass, calibrated trim) travel in the params object, not as new knobs.
 - The loudness meter is verified against a known-value reference sine before anything downstream trusts it; true peak uses 4x polyphase FIR interpolation, not a sample-peak proxy.
 
-Design document: [AI-Maestro rebrand design](docs/superpowers/specs/2026-11-20-ai-maestro-rebrand-design.md)
-
 ---
 
 ## Repository structure
@@ -150,8 +148,7 @@ ai-maestro/
 │   ├── knob-registry.json   knob definitions, ranges, presets
 │   ├── style.css            minimal flat theme
 │   ├── assets/              mark.svg
-│   ├── audio/               demo stems (large test WAVs are not committed)
-│   └── superpowers/         specs and implementation plan
+│   └── audio/               demo stems (large test WAVs are not committed)
 ├── bug-repro.mjs            regression suite: knob math and gain staging
 ├── auto-repro.mjs           regression suite: meter, analysis, chain, AUTO, parity
 ├── deshimmer-repro.mjs      regression suite: deshimmer

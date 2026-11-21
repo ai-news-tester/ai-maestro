@@ -61,9 +61,9 @@ check('1 relative links resolve', () => {
 check('2 no banned branding', () => {
   const BANNED = /nasuno|suno(?!mic)|humanizer|geeknik|AhmadHassan|Turnitout|Fractal-Compute/gi;
   const TEXT_EXTS = new Set(['.md', '.html', '.yml', '.yaml', '.xml', '.txt', '.js', '.mjs', '.css', '.json', '.svg']);
-  // LICENSE keeps the upstream MIT notice. The 2026-11-20 plan and spec quote the old names as history.
+  // LICENSE keeps the upstream MIT notice.
   // link-check.mjs and dom-contract.mjs must name the banned pattern to detect it.
-  const EXEMPT = new Set(['LICENSE', 'link-check.mjs', 'dom-contract.mjs', 'docs/superpowers/plans/2026-11-20-ai-maestro-rebrand.md', 'docs/superpowers/specs/2026-11-20-ai-maestro-rebrand-design.md']);
+  const EXEMPT = new Set(['LICENSE', 'link-check.mjs', 'dom-contract.mjs']);
   // One legacy storage key must stay byte-exact so saved settings still load; only that exact line is exempt.
   const LEGACY_LINES = new Map([
     ['docs/modules/storage.js', /^const LEGACY_SETTINGS_KEY = 'nasuno_engine_settings_v3';\s*$/],

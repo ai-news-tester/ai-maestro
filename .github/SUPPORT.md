@@ -4,7 +4,7 @@
 
 ### 1. Documentation
 
-Start with the [README](../README.md) and the design document it links: the AI-Maestro rebrand design spec under `docs/superpowers/specs/`.
+Start with the [README](../README.md).
 
 The README covers what the app measures, the AUTO mastering flow, the 15 controls, how to run it locally, and its known limits.
 
