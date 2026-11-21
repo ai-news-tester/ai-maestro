@@ -2,7 +2,7 @@
 globalThis.window = { addEventListener() {} };
 globalThis.document = { getElementById: () => null };
 import assert from 'node:assert/strict';
-import { SpectralAnalyzer } from './docs/modules/analyzer.js';
+import { SpectralAnalyzer, StegoDetector } from './docs/modules/analyzer.js';
 
 // ---- Task 1: K-weighted LUFS + 4x true peak ----
 // Reference: EBU R128 calibration — 1 kHz stereo sine reads its dBFS value in LUFS.
@@ -88,6 +88,26 @@ for (let i = 0; i < pureSine.length; i++) pureSine[i] = 0.3 * Math.sin((2 * Math
 const sineScore = SpectralAnalyzer.measureShimmer(pureSine, SR);
 console.log('shimmer synthetic:', shimScore.score, 'vs pure sine:', sineScore.score);
 assert.ok(shimScore.score > sineScore.score, 'shimmer signal must score above pure sine');
+
+// Stego echo detector: a pure tone has no echo. The low-quefrency cepstrum is
+// lifted by the spectral envelope, so scoring against a global median reads
+// the envelope shoulder as a strong echo (demo track: 0.42 ms, conf 0.84).
+const stegoSine = new Float32Array(SR * 4);
+for (let i = 0; i < stegoSine.length; i++) stegoSine[i] = 0.5 * Math.sin((2 * Math.PI * 1000 * i) / SR);
+const sineEcho = StegoDetector.analyze(stegoSine, SR);
+console.log('stego pure sine confidence:', sineEcho.confidence);
+assert.ok(sineEcho.confidence < 0.5, `pure sine reported as echo conf ${sineEcho.confidence} — baseline skewed by spectral envelope`);
+// A real 3 ms echo (deterministic LCG noise + delayed copy) must still be found.
+let lcgSeed = 12345;
+const lcg = new Float32Array(SR * 4);
+for (let i = 0; i < lcg.length; i++) { lcgSeed = (lcgSeed * 1103515245 + 12345) & 0x7fffffff; lcg[i] = (lcgSeed / 0x3fffffff) - 1; }
+const d3ms = Math.round(0.003 * SR);
+const echoedNoise = new Float32Array(SR * 4);
+for (let i = 0; i < echoedNoise.length; i++) echoedNoise[i] = lcg[i] + (i >= d3ms ? 0.6 * lcg[i - d3ms] : 0);
+const realEcho = StegoDetector.analyze(echoedNoise, SR);
+console.log('stego real echo:', realEcho.confidence, realEcho.echoes[0] ? realEcho.echoes[0].delayMs + ' ms' : 'none');
+assert.ok(realEcho.confidence > 0.9, 'real 3 ms echo must be detected');
+assert.ok(realEcho.echoes[0] && Math.abs(realEcho.echoes[0].delayMs - 3) < 0.2, 'real echo delay near 3 ms');
 
 console.log('Task 2: PASS');
 // ---- Task 4: one shared mastering chain ----

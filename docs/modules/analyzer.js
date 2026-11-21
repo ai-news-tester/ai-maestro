@@ -326,32 +326,31 @@ export class StegoDetector {
     }
     for (let q = 0; q < frameSize; q++) avgCep[q] /= numFrames;
 
-    // Compute MAD on search slice
-    const searchSlice = [];
-    for (let q = qLo; q <= qHi; q++) searchSlice.push(avgCep[q]);
-    searchSlice.sort((a, b) => a - b);
-    const median = searchSlice[Math.floor(searchSlice.length / 2)];
-    const deviations = searchSlice.map(v => Math.abs(v - median));
-    deviations.sort((a, b) => a - b);
-    const mad = deviations[Math.floor(deviations.length / 2)] || 1e-20;
+    // Local baseline (moving median ±50 bins, as CarrierDetector floors its spectrum):
+    // the low-quefrency cepstrum is lifted by the spectral envelope, so a global
+    // median reads the envelope shoulder as a strong echo on tonal tracks.
+    const localBase = (arr, q, radius = 50) => {
+      const lo = Math.max(0, q - radius), hi = Math.min(arr.length - 1, q + radius);
+      const w = []; for (let k = lo; k <= hi; k++) w.push(arr[k]);
+      w.sort((a, b) => a - b);
+      const med = w[Math.floor(w.length / 2)];
+      const dev = w.map(v => Math.abs(v - med)).sort((a, b) => a - b);
+      return { med, mad: dev[Math.floor(dev.length / 2)] || 1e-20 };
+    };
 
     // Find candidate echo peaks that survive inter-frame variance and pitch harmonic rejection
     const candidatePeaks = [];
     for (let q = qLo + 1; q < qHi - 1; q++) {
       if (avgCep[q] > avgCep[q - 1] && avgCep[q] > avgCep[q + 1]) {
-        const score = (avgCep[q] - median) / mad;
+        const lb = localBase(avgCep, q);
+        const score = (avgCep[q] - lb.med) / lb.mad;
         // Significant watermark echo requires prominent score > 8.0
         if (score > 8.0) {
-          // Check frame persistence across time
+          // Check frame persistence across time (same local rule)
           let framePresence = 0;
           for (let f = 0; f < numFrames; f++) {
-            const fSlice = [];
-            for (let k = qLo; k <= qHi; k++) fSlice.push(cepFrames[f][k]);
-            fSlice.sort((a, b) => a - b);
-            const fMed = fSlice[Math.floor(fSlice.length / 2)];
-            const fDev = fSlice.map(v => Math.abs(v - fMed)).sort((a, b) => a - b);
-            const fMad = fDev[Math.floor(fDev.length / 2)] || 1e-20;
-            if ((cepFrames[f][q] - fMed) / fMad > 5.0) framePresence++;
+            const fb = localBase(cepFrames[f], q);
+            if ((cepFrames[f][q] - fb.med) / fb.mad > 5.0) framePresence++;
           }
           const consistency = framePresence / numFrames;
 
