@@ -273,8 +273,8 @@ export class MaestroDSP {
     const chain = [stride1, stride2, stegoComb, notch1, notch2, notch3, neuralFilter, deshimmerShelf, deesser, airShelfNode, blendFilter1, blendFilter2, allpass1, allpass2, allpass3, statShaper, hashDelay];
     for (let i = 0; i < chain.length - 1; i++) chain[i].connect(chain[i + 1]);
     hashDelay.connect(roomMixBus); hashDelay.connect(roomSend); roomSend.connect(roomDelay1); roomDelay1.connect(roomDelay2); roomDelay2.connect(roomFilter); roomFilter.connect(roomReturn); roomReturn.connect(roomMixBus);
-    roomMixBus.connect(textureShaper); textureShaper.connect(shelf); shelf.connect(monoLows); monoLows.connect(glueComp); glueComp.connect(loudnessGain); loudnessGain.connect(qualityLimiter); qualityLimiter.connect(tpLimiter); tpLimiter.connect(ceiling); ceiling.connect(trimGain);
-    return { input: stride1, output: trimGain, nodes };
+    roomMixBus.connect(textureShaper); textureShaper.connect(shelf); shelf.connect(monoLows); monoLows.connect(glueComp); glueComp.connect(loudnessGain); loudnessGain.connect(qualityLimiter); qualityLimiter.connect(tpLimiter); tpLimiter.connect(ceiling); ceiling.connect(trimGain); trimGain.connect(outGain);
+    return { input: stride1, output: outGain, nodes };
   }
   // MASTER_CHAIN_END
 
@@ -323,11 +323,13 @@ export class MaestroDSP {
     this.chain = MaestroDSP.buildMasterChain(this.ctx, this.params, this);
     sourceNode.connect(this.rawAnalyser);
     sourceNode.connect(this.chain.input);
+    // outGain is the chain's final node, so the OUTPUT knob reaches live and
+    // export equally; the wet/dry crossfade feeds the analyser directly, and
+    // BYPASS (RAW) now crosses around the output knob too, as its label claims.
     this.chain.output.connect(this.wetGain);
-    this.wetGain.connect(this.outGain);
     sourceNode.connect(this.dryGain);
-    this.dryGain.connect(this.outGain);
-    this.outGain.connect(this.analyser);
+    this.wetGain.connect(this.analyser);
+    this.dryGain.connect(this.analyser);
     this.analyser.connect(destinationNode);
   }
 

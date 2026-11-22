@@ -298,7 +298,8 @@ console.log('Task 7 fix: PASS');
 // RED: no trimGain node, no renderChain helper, AUTO does not calibrate.
 assert.ok(chainBody7.includes('autoTrimDb'), 'chain reads autoTrimDb');
 assert.ok(chainBody7.includes('ceiling.connect(trimGain)'), 'trim after ceiling, inside shared chain');
-assert.ok(chainBody7.includes('output: trimGain'), 'chain output is the trim node');
+assert.ok(chainBody7.includes('trimGain.connect(outGain)'), 'output knob wired after trim, inside shared chain');
+assert.ok(chainBody7.includes('output: outGain'), 'chain output is the output knob node');
 assert.equal(typeof MaestroDSP.renderChain, 'function', 'renderChain helper shared by export and calibration');
 const autoRunBody = appSrc6.slice(appSrc6.indexOf('async function runAutoMaster'), appSrc6.indexOf('// ============================================================================\n// Preset Profile Management'));
 assert.ok(autoRunBody.includes('renderChain'), 'AUTO calibrates from a real render');
