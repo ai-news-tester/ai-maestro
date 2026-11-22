@@ -73,6 +73,36 @@ export class PersistenceManager {
   }
 
   /**
+   * Run one transaction and resolve only when it is durable (fix 4):
+   * tx.oncomplete, never the request's onsuccess; reject on abort/error;
+   * always close the connection so it cannot block a version upgrade.
+   * @param {string} mode
+   * @param {(store: IDBObjectStore) => Promise<any>|any} action
+   * @returns {Promise<any>}
+   */
+  static _runTx(mode, action) {
+    return new Promise((resolve, reject) => {
+      this.openDB().then((db) => {
+        const finish = (err, val) => {
+          try { db.close(); } catch (_) {}
+          if (err) reject(err); else resolve(val);
+        };
+        const tx = db.transaction(STORE_NAME, mode);
+        tx.oncomplete = () => finish(null, this._txResult);
+        tx.onabort = () => finish(tx.error || new Error('IndexedDB transaction aborted'));
+        tx.onerror = () => finish(tx.error || new Error('IndexedDB transaction failed'));
+        try {
+          const req = action(tx.objectStore(STORE_NAME));
+          if (req && req.onsuccess !== undefined) {
+            req.onsuccess = () => { this._txResult = req.result; };
+            req.onerror = () => finish(req.error);
+          }
+        } catch (err) { finish(err); }
+      }).catch(reject);
+    });
+  }
+
+  /**
    * Save an uploaded audio File/Blob/ArrayBuffer to IndexedDB.
    * @param {ArrayBuffer|Blob|File} audioData
    * @param {string} fileName
@@ -80,19 +110,9 @@ export class PersistenceManager {
    */
   static async saveUploadedAudio(audioData, fileName) {
     try {
-      const db = await this.openDB();
-      return new Promise((resolve, reject) => {
-        const tx = db.transaction(STORE_NAME, 'readwrite');
-        const store = tx.objectStore(STORE_NAME);
-        const record = {
-          data: audioData,
-          fileName: fileName,
-          timestamp: Date.now(),
-        };
-        const putReq = store.put(record, AUDIO_RECORD_KEY);
-        putReq.onsuccess = () => resolve(true);
-        putReq.onerror = () => reject(putReq.error);
-      });
+      await this._runTx('readwrite', (store) =>
+        store.put({ data: audioData, fileName, timestamp: Date.now() }, AUDIO_RECORD_KEY));
+      return true;
     } catch (err) {
       console.warn('IndexedDB saveUploadedAudio error:', err);
       return false;
@@ -106,14 +126,8 @@ export class PersistenceManager {
    */
   static async loadUploadedAudio() {
     try {
-      const db = await this.openDB();
-      return new Promise((resolve, reject) => {
-        const tx = db.transaction(STORE_NAME, 'readonly');
-        const store = tx.objectStore(STORE_NAME);
-        const getReq = store.get(AUDIO_RECORD_KEY);
-        getReq.onsuccess = () => resolve(getReq.result || null);
-        getReq.onerror = () => reject(getReq.error);
-      });
+      const result = await this._runTx('readonly', (store) => store.get(AUDIO_RECORD_KEY));
+      return result || null;
     } catch (err) {
       console.warn('IndexedDB loadUploadedAudio error:', err);
       return null;
@@ -126,14 +140,7 @@ export class PersistenceManager {
    */
   static async clearUploadedAudio() {
     try {
-      const db = await this.openDB();
-      return new Promise((resolve, reject) => {
-        const tx = db.transaction(STORE_NAME, 'readwrite');
-        const store = tx.objectStore(STORE_NAME);
-        const delReq = store.delete(AUDIO_RECORD_KEY);
-        delReq.onsuccess = () => resolve(true);
-        delReq.onerror = () => reject(delReq.error);
-      });
+      await this._runTx('readwrite', (store) => store.delete(AUDIO_RECORD_KEY));
     } catch (err) {
       console.warn('IndexedDB clearUploadedAudio error:', err);
     }

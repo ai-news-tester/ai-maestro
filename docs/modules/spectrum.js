@@ -9,8 +9,15 @@
 
 import { SIBILANCE_THRESHOLD } from './auto.js';
 
-const AUTO_RANGES = { carrierErase: [0, 100, 1], stegoStrip: [0, 100, 1], spectralBlend: [0, 100, 1], deshimmer: [0, 100, 1], bandwidthHeal: [-6, 6, 0.25], dynamicsNatural: [0, 100, 1], qualityGate: [1, 6, 0.1], outputGain: [-12, 6, 0.5] };
 function clamp01(v) { return Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : 0; }
+
+/** Hex token to rgba(); shared by every canvas trace. */
+function rgb(hex, alpha) {
+  const h = hex.replace('#', '');
+  const full = h.length === 3 ? h.split('').map((c) => c + c).join('') : h;
+  const n = parseInt(full, 16);
+  return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${alpha})`;
+}
 
 /**
  * Per-issue marker/bar/slider model from an analyzeFullTrack report plus mapAutoReport
@@ -18,16 +25,24 @@ function clamp01(v) { return Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : 
  * freqLo/freqHi null (bars only, no spectrum band). sliderDefault is the AUTO-computed
  * knob value, so AUTO sets the slider and a manual move can diverge from it.
  */
-export function buildAutoIssues(report = {}, params = {}, reasons = {}, targetLUFS) {
+export function buildAutoIssues(report = {}, params = {}, reasons = {}, targetLUFS, registry = null) {
   const r = report || {};
   const p = params || {};
   const why = reasons || {};
+  // Slider ranges come from the registry (fix 10): one source of truth, so a
+  // range edit in knob-registry.json cannot leave the AUTO slider behind.
+  const rangeOf = (knobId) => {
+    const k = registry && Array.isArray(registry.compositeKnobs)
+      ? registry.compositeKnobs.find((c) => c && c.id === knobId) : null;
+    return k && Number.isFinite(k.min) && Number.isFinite(k.max) && Number.isFinite(k.step)
+      ? [k.min, k.max, k.step] : [0, 100, 1];
+  };
   const target = Number.isFinite(targetLUFS) ? targetLUFS : (Number.isFinite(p.targetLUFS) ? p.targetLUFS : -14);
   const duration = Number.isFinite(r.duration) ? r.duration : 0;
   const whole = duration > 0 ? [{ start: 0, end: duration }] : [];
   const issues = [];
   const add = (o) => {
-    const range = AUTO_RANGES[o.knobId] || [0, 100, 1];
+    const range = rangeOf(o.knobId);
     issues.push({
       id: o.id || o.knobId, name: o.name,
       freqLo: o.freqLo !== undefined ? o.freqLo : null,
@@ -210,26 +225,35 @@ export class SpectrumRenderer {
     const isPlaying = this.getIsPlaying();
 
     // Theme colours come from the CSS tokens so night mode flips the canvas too.
-    const cs = getComputedStyle(document.documentElement);
-    const token = (name, fallback) => (cs.getPropertyValue(name) || fallback).trim();
-    const rgb = (hex, alpha) => {
-      const h = hex.replace('#', '');
-      const full = h.length === 3 ? h.split('').map((c) => c + c).join('') : h;
-      const n = parseInt(full, 16);
-      return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, ${alpha})`;
-    };
-    const slate = token('--slate', '#2f4858');
-    const ochre = token('--ochre', '#8a5a2b');
-    const brick = token('--brick', '#a33a2a');
+    // Cached per theme (fix 12): getComputedStyle on every frame is the single
+    // largest fixed cost of the render loop.
+    const themeKey = document.documentElement.dataset.theme || 'night';
+    if (!this.cachedTheme || this.cachedTheme.key !== themeKey) {
+      const cs = getComputedStyle(document.documentElement);
+      const token = (name, fallback) => (cs.getPropertyValue(name) || fallback).trim();
+      this.cachedTheme = {
+        key: themeKey,
+        slate: token('--slate', '#2f4858'),
+        ochre: token('--ochre', '#8a5a2b'),
+        brick: token('--brick', '#a33a2a'),
+        surface: token('--surface', '#ffffff'),
+        hairline: token('--hairline', '#e2dfd9'),
+        muted: token('--muted', '#6f6b64'),
+      };
+    }
+    const theme = this.cachedTheme;
+    const slate = theme.slate;
+    const ochre = theme.ochre;
+    const brick = theme.brick;
 
     // 1. Clear background
-    ctx.fillStyle = token('--surface', '#ffffff');
+    ctx.fillStyle = theme.surface;
     ctx.fillRect(0, 0, width, height);
 
     // 2. Horizontal dB grid lines
     ctx.lineWidth = 1;
-    ctx.strokeStyle = token('--hairline', '#e2dfd9');
-    ctx.fillStyle = token('--muted', '#6f6b64');
+    ctx.strokeStyle = theme.hairline;
+    ctx.fillStyle = theme.muted;
     ctx.font = '9px ui-monospace, Menlo, Consolas, monospace';
     ctx.textAlign = 'left';
 
