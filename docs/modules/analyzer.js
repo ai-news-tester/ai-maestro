@@ -361,7 +361,29 @@ export class StegoDetector {
             return Math.abs(ratio - nearestInt) < 0.05 && nearestInt >= 2 && nearestInt <= 5;
           });
 
-          if (!isHarmonic && consistency >= 0.6) {
+          // Pitch-vs-echo: score the 2x/3x multiples (peak-aligned +-2 bins, a
+          // rahmonic can fall between integer bins when sr/f0 is not an integer).
+          const multScore = (m) => {
+            const qm = q * m;
+            if (qm >= frameSize / 2) return 0;
+            let best = -Infinity;
+            for (let k = Math.max(2, qm - 2); k <= Math.min(frameSize / 2 - 1, qm + 2); k++) {
+              const mb = localBase(avgCep, k);
+              best = Math.max(best, (avgCep[k] - mb.med) / mb.mad);
+            }
+            return best;
+          };
+          const m2 = multScore(2), m3 = multScore(3);
+          // A pitched tone's period rides strong integer multiples (measured
+          // >= 0.51x of the fundamental's score); echo rahmonics decay as
+          // alpha^m (<= 0.46x even for a blatant 90% echo).
+          const isPitchLadder = m2 >= 0.5 * score;
+          // A real echo leaves rahmonics at 2q/3q that clear the same 8.0
+          // significance bar as a primary peak (weakest echo measured: 13.8).
+          // A lone spike whose multiples sit at noise level is not an echo.
+          const hasRahmonics = m2 >= 8 || m3 >= 8;
+
+          if (!isHarmonic && !isPitchLadder && hasRahmonics && consistency >= 0.6) {
             candidatePeaks.push({
               quefrency: q,
               delayMs: +((q / sr) * 1000).toFixed(3),

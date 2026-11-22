@@ -109,6 +109,15 @@ console.log('stego real echo:', realEcho.confidence, realEcho.echoes[0] ? realEc
 assert.ok(realEcho.confidence > 0.9, 'real 3 ms echo must be detected');
 assert.ok(realEcho.echoes[0] && Math.abs(realEcho.echoes[0].delayMs - 3) < 0.2, 'real echo delay near 3 ms');
 
+// Pitch-vs-echo: a pitched tone's period rides a ladder of strong cepstral
+// multiples (2x >= 0.5x of the fundamental); echo rahmonics decay as alpha^m.
+// A sawtooth must NOT be reported as an echo (real tracks: 440 Hz => 2.27 ms).
+const sawTone = new Float32Array(SR * 4);
+for (let i = 0; i < sawTone.length; i++) sawTone[i] = 0.5 * (((2 * Math.PI * 220 * i) / SR) % (2 * Math.PI) / Math.PI - 1);
+const sawEcho = StegoDetector.analyze(sawTone, SR);
+console.log('stego sawtooth confidence:', sawEcho.confidence);
+assert.ok(sawEcho.confidence < 0.5, `pitched tone (sawtooth) reported as echo conf ${sawEcho.confidence} — pitch ladder not rejected`);
+
 console.log('Task 2: PASS');
 // ---- Task 4: one shared mastering chain ----
 import { readFileSync as readFs } from 'node:fs';
