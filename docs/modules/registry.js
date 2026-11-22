@@ -7,6 +7,16 @@
 
 import { FLKnob } from './knob.js';
 
+/** Escape text for safe HTML interpolation (fix 6). */
+export function escapeHtml(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 // SVG Vector Icon Templates
 const SVG_ICONS = {
   info: `<svg class="svg-icon-info" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>`,
@@ -43,6 +53,8 @@ export class RegistryDOM {
   renderEvasionPanel(onInfoClick) {
     const container = document.getElementById('evasionPanel');
     if (!container) return;
+    for (const knob of Object.values(this.knobsMap)) { if (typeof knob.destroy === 'function') knob.destroy(); }
+    this.knobsMap = {};
     container.innerHTML = '';
 
     // Group composite knobs by module
@@ -77,7 +89,7 @@ export class RegistryDOM {
         knobCol.className = 'knob-col';
         knobCol.innerHTML = `
           <div class="knob-label-row">
-            <span class="knob-label" title="${k.label}">${k.label}</span>
+            <span class="knob-label" title="${escapeHtml(k.label)}">${escapeHtml(k.label)}</span>
             <button class="info-btn" data-composite-info="${k.id}" title="About this control" aria-label="About this control">
               ${SVG_ICONS.info}
             </button>

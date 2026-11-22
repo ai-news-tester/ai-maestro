@@ -626,7 +626,7 @@ function applyAutoReport(report, auto) {
   // Rebuild the live chain so it matches export exactly.
   if (dsp && isPlaying) startPlayback();
 
-  autoIssues = buildAutoIssues(report, auto.params, auto.reasons, auto.params.targetLUFS);
+  autoIssues = buildAutoIssues(report, auto.params, auto.reasons, auto.params.targetLUFS, registry);
   if (spectrum) spectrum.setAutoIssues(autoIssues);
   renderAutoIssues(autoIssues);
 

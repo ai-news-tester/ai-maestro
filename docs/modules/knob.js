@@ -41,23 +41,23 @@ export class FLKnob {
       this.onStart(e.clientY);
     });
 
-    window.addEventListener('mousemove', (e) => {
-      if (this.isDragging) this.onMove(e.clientY, e.shiftKey);
-    });
+    // Shared window drag handlers, installed once for all knobs (fix 7).
+    if (!FLKnob._sharedDrag) {
+      FLKnob._sharedDrag = true;
+      window.addEventListener('mousemove', (e) => { const k = FLKnob._active; if (k && k.isDragging) k.onMove(e.clientY, e.shiftKey); });
+      window.addEventListener('mouseup', () => { const k = FLKnob._active; if (k) k.onEnd(); });
+      window.addEventListener('touchend', () => { const k = FLKnob._active; if (k) k.onEnd(); });
+    }
 
-    window.addEventListener('mouseup', () => this.onEnd());
-
-    // Touch drag
+    // Touch drag: touchmove on the element itself, non-passive so dragging
+    // a knob does not also scroll the page (fix 8).
     this.el.addEventListener('touchstart', (e) => {
       if (e.target.closest('.info-btn')) return;
       if (e.touches.length === 1) this.onStart(e.touches[0].clientY);
     }, { passive: true });
-
-    window.addEventListener('touchmove', (e) => {
-      if (this.isDragging && e.touches.length === 1) this.onMove(e.touches[0].clientY, false);
-    }, { passive: true });
-
-    window.addEventListener('touchend', () => this.onEnd());
+    this.el.addEventListener('touchmove', (e) => {
+      if (this.isDragging && e.touches.length === 1) { e.preventDefault(); this.onMove(e.touches[0].clientY, false); }
+    }, { passive: false });
 
     // Mouse wheel (fine tune with Shift)
     this.el.addEventListener('wheel', (e) => {
@@ -109,6 +109,7 @@ export class FLKnob {
 
   onStart(clientY) {
     this.isDragging = true;
+    FLKnob._active = this;
     this.startY = clientY;
     this.startVal = this.val;
     document.body.style.cursor = 'ns-resize';
@@ -129,6 +130,11 @@ export class FLKnob {
       this.isDragging = false;
       document.body.style.cursor = '';
     }
+    if (FLKnob._active === this) FLKnob._active = null;
+  }
+
+  destroy() {
+    if (FLKnob._active === this) FLKnob._active = null;
   }
 
   onChange(cb) {

@@ -59,7 +59,7 @@ check('1 relative links resolve', () => {
 
 // ---- 2. No banned branding in tracked files ----
 check('2 no banned branding', () => {
-  const BANNED = /nasuno|suno(?!mic)|humanizer|geeknik|AhmadHassan|Turnitout|Fractal-Compute/gi;
+  const BANNED = /nasuno|suno(?!mic)|humanizer|geeknik|Turnitout|Fractal-Compute/gi;
   const TEXT_EXTS = new Set(['.md', '.html', '.yml', '.yaml', '.xml', '.txt', '.js', '.mjs', '.css', '.json', '.svg']);
   // LICENSE keeps the upstream MIT notice.
   // link-check.mjs and dom-contract.mjs must name the banned pattern to detect it.

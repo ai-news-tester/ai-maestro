@@ -650,10 +650,10 @@ export class SpectralAnalyzer {
       // RMS genuinely is, instead of reporting a full-scale click as silence.
       const peak = AudioMath.peakDBFS(left);
       const rms = AudioMath.rmsDBFS(left);
-      let clips = 0;
-      for (let i = 0; i < len; i++) if (Math.abs(left[i]) >= 0.999) clips++;
+      let clips = 0, sumL = 0, sumR = 0;
+      for (let i = 0; i < len; i++) { if (Math.abs(left[i]) >= 0.999) clips++; sumL += left[i]; sumR += right[i]; }
       const silent = !Number.isFinite(rms) || rms < -60;
-      return { integratedLUFS: -Infinity, loudnessRange: 0, truePeakDBTP: Number.isFinite(peak) ? peak : -Infinity, peakDBFS: peak, rmsDBFS: rms, crestFactorDB: Number.isFinite(peak) && Number.isFinite(rms) ? +(peak - rms).toFixed(1) : 0, clippingCount: clips, dcOffsetL: 0, dcOffsetR: 0, silenceRanges: silent ? [{ start: 0, end: +duration.toFixed(3) }] : [], fadeIn: 0, fadeOut: 0, stereoWidth: 0, correlation: 0, monoLowsDB: -Infinity, spectralTilt: 0, harshPeaks: [], sibilance: 0, hfCutoff: sr / 2, carriers: [], echoConfidence: 0, shimmer: { score: 0, confidence: 0 }, sampleRate: sr, duration };
+      return { integratedLUFS: -Infinity, loudnessRange: 0, truePeakDBTP: Number.isFinite(peak) ? peak : -Infinity, peakDBFS: peak, rmsDBFS: rms, crestFactorDB: Number.isFinite(peak) && Number.isFinite(rms) ? +(peak - rms).toFixed(1) : 0, clippingCount: clips, dcOffsetL: +(sumL / len).toFixed(6), dcOffsetR: +(sumR / len).toFixed(6), silenceRanges: silent ? [{ start: 0, end: +duration.toFixed(3) }] : [], fadeIn: 0, fadeOut: 0, stereoWidth: 0, correlation: 0, monoLowsDB: -Infinity, spectralTilt: 0, harshPeaks: [], sibilance: 0, hfCutoff: sr / 2, carriers: [], echoConfidence: 0, shimmer: { score: 0, confidence: 0 }, sampleRate: sr, duration };
     }
     let clippingCount = 0, sumL = 0, sumR = 0;
     for (let i = 0; i < len; i++) { if (Math.abs(left[i]) >= 0.999) clippingCount++; if (right !== left && Math.abs(right[i]) >= 0.999) clippingCount++; sumL += left[i]; sumR += right[i]; }

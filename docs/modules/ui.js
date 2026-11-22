@@ -3,6 +3,8 @@
  * Manages info popovers, preset dropdowns, and bypass controls.
  */
 
+import { escapeHtml } from './registry.js';
+
 export class UIController {
   constructor(registry, options = {}) {
     this.registry = registry;
@@ -62,19 +64,19 @@ export class UIController {
     bodyEl.innerHTML = `
       <div class="popover-section">
         <div class="popover-section-title">WHAT IT DOES</div>
-        <p class="popover-highlight">${knob.info.purpose}</p>
+        <p class="popover-highlight">${escapeHtml(knob.info.purpose)}</p>
       </div>
       <div class="popover-section">
         <div class="popover-section-title">DESCRIPTION</div>
-        <p>${knob.info.description}</p>
+        <p>${escapeHtml(knob.info.description)}</p>
       </div>
       <div class="popover-section">
         <div class="popover-section-title">HOW IT WORKS</div>
-        <p>${knob.info.howItWorks}</p>
+        <p>${escapeHtml(knob.info.howItWorks)}</p>
       </div>
       <div class="popover-section">
         <div class="popover-section-title">FIDELITY TRADEOFF</div>
-        <p>${knob.info.tradeoff}</p>
+        <p>${escapeHtml(knob.info.tradeoff)}</p>
       </div>
     `;
 
