@@ -117,6 +117,23 @@ const legacyOnly = stubStorage({ [LEGACY]: JSON.stringify(legacyPayload) });
 PersistenceManager.clearSettings();
 assert.equal(PersistenceManager.loadSettings(), null, 'clearSettings left the legacy key behind — settings resurrect');
 assert.ok(!(LEGACY in legacyOnly), 'clearSettings did not remove the legacy key');
+
+// 8. Keyboard operation: arrows step like the wheel, Shift = fine step, Home/End bounds.
+{
+  const handlers = {};
+  const kbEl = { dataset: {}, querySelector: () => null, addEventListener: (t, fn) => { handlers[t] = fn; }, dispatchEvent() {}, style: {}, setAttribute() {}, tabIndex: 0 };
+  const kb = new FLKnob(kbEl, { knobId: 'qualityGate', min: 1, max: 6, step: 0.1, default: 3, val: 3, unit: '', readoutEl: { textContent: '' } });
+  const press = (key, shiftKey = false) => handlers.keydown({ key, shiftKey, preventDefault() {} });
+  press('ArrowUp');
+  assert.ok(Math.abs(kb.val - 3.1) < 1e-9, `ArrowUp must step by step, got ${kb.val}`);
+  press('ArrowUp', true);
+  assert.ok(Math.abs(kb.val - 3.12) < 1e-9, `Shift+ArrowUp must step by the fine step, got ${kb.val}`);
+  press('End');
+  assert.equal(kb.val, 6, 'End must jump to max');
+  press('Home');
+  assert.equal(kb.val, 1, 'Home must jump to min');
+  console.log('keyboard: ArrowUp/fine/Home/End all step correctly');
+}
 // 3d. Export must render past the last input sample: the chain has a 3 ms hash
 // delay, a 47 ms room path and 50-140 ms compressor releases, so rendering
 // exactly buffer.length cuts the chain's own tail off.

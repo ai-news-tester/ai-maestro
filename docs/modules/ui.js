@@ -51,6 +51,8 @@ export class UIController {
     const backdrop = document.getElementById('popoverBackdrop');
     if (!popover || !bodyEl) return;
 
+    this.popoverTrigger = triggerEl || null;
+
     if (titleEl) titleEl.textContent = knob.info.title || knob.label;
     if (badgeEl) {
       badgeEl.textContent = `${knob.moduleTitle} • LIVE DSP`;
@@ -78,6 +80,9 @@ export class UIController {
 
     popover.classList.add('open');
     if (backdrop) backdrop.classList.add('open');
+    // Move focus into the dialog so keyboard and screen-reader users land in it.
+    const closeBtn = document.getElementById('popoverCloseBtn');
+    if (closeBtn && typeof closeBtn.focus === 'function') closeBtn.focus();
   }
 
   hidePopover() {
@@ -85,6 +90,9 @@ export class UIController {
     const backdrop = document.getElementById('popoverBackdrop');
     if (popover) popover.classList.remove('open');
     if (backdrop) backdrop.classList.remove('open');
+    // Return focus to the control that opened the popover.
+    if (this.popoverTrigger && typeof this.popoverTrigger.focus === 'function') this.popoverTrigger.focus();
+    this.popoverTrigger = null;
   }
 
   // ==========================================================================
@@ -206,5 +214,7 @@ export class UIController {
 
     popover.classList.add('open');
     if (backdrop) backdrop.classList.add('open');
+    const closeBtn = document.getElementById('popoverCloseBtn');
+    if (closeBtn && typeof closeBtn.focus === 'function') closeBtn.focus();
   }
 }

@@ -72,6 +72,39 @@ export class FLKnob {
       if (e.target.closest('.info-btn')) return;
       this.setValue(this.defaultVal, true);
     });
+
+    // Keyboard: Arrow keys step exactly like the wheel, Shift for fine steps,
+    // Home/End jump to the range bounds, PageUp/PageDown a 10x step.
+    if (typeof this.el.setAttribute === 'function') {
+      this.el.setAttribute('role', 'slider');
+      this.el.tabIndex = 0;
+      this.el.setAttribute('aria-label', `${this.knobId} control`);
+      this.updateAria();
+    }
+    this.el.addEventListener('keydown', (e) => {
+      const fine = e.shiftKey ? this.fineStep() : null;
+      const stepSize = e.shiftKey ? this.step * 0.2 : this.step;
+      let handled = true;
+      switch (e.key) {
+        case 'ArrowUp': case 'ArrowRight': this.setValue(this.val + stepSize, true, fine); break;
+        case 'ArrowDown': case 'ArrowLeft': this.setValue(this.val - stepSize, true, fine); break;
+        case 'PageUp': this.setValue(this.val + this.step * 10, true); break;
+        case 'PageDown': this.setValue(this.val - this.step * 10, true); break;
+        case 'Home': this.setValue(this.min, true); break;
+        case 'End': this.setValue(this.max, true); break;
+        default: handled = false;
+      }
+      if (handled) e.preventDefault();
+    });
+  }
+
+  /** Publish the current value/range to assistive tech; called after every change. */
+  updateAria() {
+    if (!this.el.setAttribute) return;
+    this.el.setAttribute('aria-valuemin', String(this.min));
+    this.el.setAttribute('aria-valuemax', String(this.max));
+    this.el.setAttribute('aria-valuenow', String(this.val));
+    this.el.setAttribute('aria-valuetext', `${this.val}${this.unit ? ' ' + this.unit : ''}`);
   }
 
   onStart(clientY) {
@@ -124,6 +157,7 @@ export class FLKnob {
     this.val = +(this.min + stepsCount * step).toFixed(precision);
 
     this.updateVisuals();
+    this.updateAria();
 
     if (triggerUpdate) {
       for (const cb of this.listeners) {
