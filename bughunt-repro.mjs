@@ -265,4 +265,43 @@ assert.deepEqual(g15b, g15c, 'zero trim must not change the match');
 assert.deepEqual(MaestroDSP.auditionGains({ integratedLUFS: -20, truePeakDBTP: -6 }, { integratedLUFS: -14, truePeakDBTP: -1 }, NaN), g15b, 'NaN trim is ignored');
 assert.ok(/auditionGains\([^)]*autoTrimDb/s.test(appSrc13), 'app.js must feed the calibrated trim to auditionGains');
 
+// --- 16. Every non-bypass export must honour the true-peak ceiling ---
+// The verification lived inside applyCorrectionDb, which exportWAV only calls
+// when autoTrimDb is absent. AUTO always sets it, so the check never ran there;
+// and a manual OUTPUT boost lands after the chain's ceiling with no check at all.
+const decodeWav16 = async (blob) => {
+  const raw = new DataView(await blob.arrayBuffer());
+  const n = (raw.byteLength - 44) / 2;
+  const out = new Float32Array(n);
+  for (let i = 0; i < n; i++) out[i] = raw.getInt16(44 + i * 2, true) / 32768;
+  return out;
+};
+const hotRender = () => {
+  const d = new Float32Array(44100);
+  for (let i = 0; i < d.length; i++) d[i] = 1.4 * Math.sin((2 * Math.PI * 11025 * i) / 44100 + Math.PI / 4);
+  return mkBuf([d], 44100);
+};
+const realRenderChain16 = MaestroDSP.renderChain;
+try {
+  MaestroDSP.renderChain = async () => hotRender();
+  // AUTO export: autoTrimDb is always finite, so the old guard skipped the check.
+  const autoBlob = await MaestroDSP.exportWAV(hotRender(), { integratedLUFS: -20, targetLUFS: -14, autoTrimDb: 0 }, false);
+  const autoTP = SpectralAnalyzer.measureTruePeak(await decodeWav16(autoBlob), 44100);
+  assert.ok(autoTP <= -1.0, 'AUTO export must respect the true-peak ceiling, got ' + autoTP.toFixed(3));
+  // Manual export: no integratedLUFS, OUTPUT boost applied after the ceiling.
+  const manualBlob = await MaestroDSP.exportWAV(hotRender(), { outputGain: 6 }, false);
+  const manualTP = SpectralAnalyzer.measureTruePeak(await decodeWav16(manualBlob), 44100);
+  assert.ok(manualTP <= -1.0, 'manual export must respect the true-peak ceiling, got ' + manualTP.toFixed(3));
+  // BYPASS promises pristine PCM: byte-identical to a plain encode of the source,
+  // so no ceiling trim or reshaping may touch it.
+  const rawBuf = hotRender();
+  const bypassBlob = await MaestroDSP.exportWAV(rawBuf, { autoTrimDb: 0 }, true);
+  const plainBlob = MaestroDSP.encodeWAV(rawBuf);
+  const bypassBytes = new Uint8Array(await bypassBlob.arrayBuffer());
+  const plainBytes = new Uint8Array(await plainBlob.arrayBuffer());
+  assert.deepEqual(bypassBytes, plainBytes, 'bypass export must stay pristine');
+} finally {
+  MaestroDSP.renderChain = realRenderChain16;
+}
+
 console.log('bughunt-repro: PASS');

@@ -205,10 +205,30 @@ export class MaestroDSP {
   }
 
   /**
-   * Apply a reduction-only gain + hard -1 dB clamp in place to a rendered buffer,
-   * then re-measure: clamping flattens wave tops and creates inter-sample overs
-   * the sample peak cannot see, so a constant trim restores the true-peak ceiling.
+   * Hold a rendered buffer under -1 dBTP. Clamping (the ceiling waveshaper, the
+   * correction, encodeWAV) flattens wave tops and creates inter-sample overs the
+   * sample peak cannot see, so the peak is measured, not assumed, and a constant
+   * trim restores the ceiling without reshaping the waveform.
+   * @returns {number} the trim applied in dB (0 when already under the ceiling)
    */
+  static enforceTruePeakCeiling(buffer) {
+    let tp = -Infinity;
+    for (let c = 0; c < buffer.numberOfChannels; c++) {
+      tp = Math.max(tp, SpectralAnalyzer.measureTruePeak(buffer.getChannelData(c), buffer.sampleRate));
+    }
+    if (!Number.isFinite(tp) || tp <= -1) return 0;
+    // 0.05 dB margin: Float32 quantization can leave the re-measured peak a
+    // hair above a bare -1 target, which is still an over on a real DAC.
+    const db = -1.05 - tp;
+    const trim = Math.pow(10, db / 20);
+    for (let c = 0; c < buffer.numberOfChannels; c++) {
+      const data = buffer.getChannelData(c);
+      for (let i = 0; i < data.length; i++) data[i] *= trim;
+    }
+    return db;
+  }
+
+  /** Apply a reduction-only gain + hard -1 dB clamp in place to a rendered buffer. */
   static applyCorrectionDb(buffer, db) {
     if (!db || db >= 0) return buffer;
     const linear = Math.pow(10, db / 20);
@@ -220,19 +240,7 @@ export class MaestroDSP {
         data[i] = v > ceil ? ceil : v < -ceil ? -ceil : v;
       }
     }
-    let tp = -Infinity;
-    for (let c = 0; c < buffer.numberOfChannels; c++) {
-      tp = Math.max(tp, SpectralAnalyzer.measureTruePeak(buffer.getChannelData(c), buffer.sampleRate));
-    }
-    if (Number.isFinite(tp) && tp > -1) {
-      // 0.05 dB margin: Float32 quantization can leave the re-measured peak a
-      // hair above a bare -1 target, which is still an over on a real DAC.
-      const trim = Math.pow(10, (-1.05 - tp) / 20);
-      for (let c = 0; c < buffer.numberOfChannels; c++) {
-        const data = buffer.getChannelData(c);
-        for (let i = 0; i < data.length; i++) data[i] *= trim;
-      }
-    }
+    this.enforceTruePeakCeiling(buffer);
     return buffer;
   }
 
@@ -607,6 +615,7 @@ export class MaestroDSP {
 
   static async exportWAV(audioBuffer, params = {}, isBypassed = false) {
     if (isBypassed || params.bypass) {
+      // BYPASS promises pristine PCM: no trim, no reshaping.
       return this.encodeWAV(audioBuffer);
     }
     const renderedBuffer = await this.renderChain(audioBuffer, params);
@@ -620,6 +629,10 @@ export class MaestroDSP {
         if (correction < 0) MaestroDSP.applyCorrectionDb(renderedBuffer, correction);
       } catch (_) {}
     }
+    // The ceiling belongs to every processed export, not just the branch above:
+    // AUTO always carries autoTrimDb, and a manual OUTPUT boost lands after the
+    // chain's ceiling stage. encodeWAV's clamp would otherwise hide the overs.
+    try { MaestroDSP.enforceTruePeakCeiling(renderedBuffer); } catch (_) {}
     return this.encodeWAV(renderedBuffer);
   }
 
