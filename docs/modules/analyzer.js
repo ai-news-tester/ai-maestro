@@ -639,14 +639,22 @@ export class SpectralAnalyzer {
     for (let i = 0; i < len; i++) mono[i] = (left[i] + right[i]) * 0.5;
     const base = this.analyze(mono, sr);
     const loud = this.measureLoudness(left, right, sr);
+    // Band energies come from windows strided across the WHOLE track, not 8 fixed
+    // ones: a 2 s defect between them used to be invisible. Accumulate mean POWER
+    // per bin (not mean magnitude, then squared) so a localised burst is not
+    // diluted away by quiet surroundings.
+    // shortcut: at most MAX_BAND_WINDOWS windows, so a 10 min track is sampled
+    // every ~1.5 s; raise the cap if band metrics need finer localisation.
+    const MAX_BAND_WINDOWS = 400;
     const nfft = 2048, half = (nfft >> 1) + 1, avg = new Float64Array(half), winFn = AudioMath.hannWindow(nfft);
-    const nw = Math.min(8, Math.floor(len / nfft));
-    for (let w = 0; w < nw; w++) { const off = nw > 1 ? Math.floor((w * (len - nfft)) / (nw - 1)) : 0; const mag = AudioMath.magnitudeSpectrum(mono.slice(off, off + nfft), winFn); for (let k = 0; k < half; k++) avg[k] += mag[k] / nw; }
-    const bandE = (lo, hi) => { const a = Math.max(0, Math.floor(lo / (sr / nfft))), b = Math.min(half - 1, Math.ceil(hi / (sr / nfft))); let e = 0; for (let k = a; k <= b; k++) e += avg[k] * avg[k]; return e; };
+    const bandStep = Math.max(nfft, Math.floor((len - nfft) / (MAX_BAND_WINDOWS - 1)));
+    const nw = Math.max(1, Math.floor((len - nfft) / bandStep) + 1);
+    for (let w = 0; w < nw; w++) { const off = w * bandStep; const mag = AudioMath.magnitudeSpectrum(mono.slice(off, off + nfft), winFn); for (let k = 0; k < half; k++) avg[k] += (mag[k] * mag[k]) / nw; }
+    const bandE = (lo, hi) => { const a = Math.max(0, Math.floor(lo / (sr / nfft))), b = Math.min(half - 1, Math.ceil(hi / (sr / nfft))); let e = 0; for (let k = a; k <= b; k++) e += avg[k]; return e; };
     const totalE = bandE(20, 20000) || 1e-20;
     let hfCutoff = sr / 2, peakE = 0;
     for (const v of avg) if (v > peakE) peakE = v;
-    for (let k = half - 1; k >= 0; k--) { if (avg[k] > peakE * 0.01) { hfCutoff = Math.round(k * (sr / nfft)); break; } }
+    for (let k = half - 1; k >= 0; k--) { if (avg[k] > peakE * 1e-4) { hfCutoff = Math.round(k * (sr / nfft)); break; } } // 1% of peak magnitude == 1e-4 of peak power (avg holds power)
     let carrier = { carriers: [] }, stego = { confidence: 0 };
     try { carrier = CarrierDetector.analyze(mono, sr); } catch {}
     try { stego = StegoDetector.analyze(mono, sr); } catch {}

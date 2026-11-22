@@ -143,6 +143,18 @@ assert.ok(noiseReport.spectralFlatness > 0.3, `white noise flatness ${noiseRepor
 const flatMapped = mapAutoReport(noiseReport, -14);
 assert.ok(flatMapped.params.spectralBlend > 40, `flat track must raise spectralBlend above base 40, got ${flatMapped.params.spectralBlend}`);
 
+// Whole-track band coverage: sibilance must see a defect anywhere in the track,
+// not only inside a handful of sampled windows. A 2 s burst at 60-62 s of a
+// 120 s track falls between the old 8 windows (~17 s apart) and was missed.
+const longN = SR * 120;
+const longTrack = new Float32Array(longN);
+for (let i = 0; i < longN; i++) longTrack[i] = 0.05 * Math.sin((2 * Math.PI * 300 * i) / SR);
+for (let i = 60 * SR; i < 62 * SR; i++) longTrack[i] += 0.3 * Math.sin((2 * Math.PI * 6000 * i) / SR);
+const longBuf = fakeBuffer([longTrack, longTrack], SR);
+const longReport = SpectralAnalyzer.analyzeFullTrack(longBuf);
+console.log('late-mid sibilance burst:', longReport.sibilance);
+assert.ok(longReport.sibilance > 0.05, `6 kHz burst mid-track missed: sibilance ${longReport.sibilance} — band energy sampled only a few windows`);
+
 console.log('Task 2: PASS');
 // ---- Task 4: one shared mastering chain ----
 import { readFileSync as readFs } from 'node:fs';
