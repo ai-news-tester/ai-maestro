@@ -273,10 +273,11 @@ for (const i of issues) {
   assert.ok(Number.isFinite(i.severity) && i.severity >= 0 && i.severity <= 1, `issue ${i.id} severity 0-1`);
   assert.ok(Number.isFinite(i.sliderDefault), `issue ${i.id} slider finite`);
 }
-// AUTO must disengage BYPASS (RAW): applyAutoReport sets dsp+ui bypass false
+// AUTO must disengage BYPASS (RAW): applyAutoReport routes through the shared
+// helper so dsp, ui, pills and the export track type all flip together.
 const autoBody6 = appSrc6.slice(appSrc6.indexOf('function applyAutoReport'), appSrc6.indexOf('async function runAutoMaster'));
-assert.ok(autoBody6.includes('dsp.setBypass(false)'), 'applyAutoReport disengages DSP bypass');
-assert.ok(autoBody6.includes('ui.setBypassState(false)'), 'applyAutoReport updates bypass UI');
+assert.ok(autoBody6.includes('applyBypassState(false)'), 'applyAutoReport disengages DSP bypass');
+assert.ok(appSrc6.includes('function applyBypassState(bypassed)'), 'single bypass source of truth exists');
 console.log('Task 6: PASS');
 
 // ---- Task 7 fix: closed-loop loudness, gain before limiters ----
@@ -308,7 +309,9 @@ assert.ok(autoRunBody.includes('autoTrimDb'), 'AUTO stores the trim in params');
 assert.ok(autoBody6.includes('autoTrimDb'), 'applyAutoReport pushes trim to live dsp.params');
 const revertIdx = appSrc6.indexOf('revertManualBtn');
 const revertBody = appSrc6.slice(revertIdx, revertIdx + 600);
-assert.ok(revertBody.includes('autoTrimDb: 0') && revertBody.includes('integratedLUFS: null'), 'revert clears AUTO trim and loudness');
+assert.ok(revertBody.includes('clearAutoParams()'), 'revert clears AUTO state via the shared helper');
+const clearBody = appSrc6.slice(appSrc6.indexOf('function clearAutoParams'), appSrc6.indexOf('/** Cancel an in-flight AUTO run'));
+assert.ok(clearBody.includes('autoTrimDb: 0') && clearBody.includes('integratedLUFS: null'), 'clearAutoParams resets AUTO trim and loudness');
 console.log('Task 7 parity: PASS');
 
 // ---- Final review fix pass: races, export clobber, refresh persistence ----
@@ -329,5 +332,7 @@ console.log('Final fixes: PASS');
 const ensureBody = appSrc6.slice(appSrc6.indexOf('function ensureAudioContext'), appSrc6.indexOf('function applyCompositeKnobDSP'));
 assert.ok(ensureBody.includes('autoParams'), 'ensureAudioContext restores AUTO chain params on dsp creation');
 const uploadBody = appSrc6.slice(appSrc6.indexOf("uploadInput.addEventListener('change'"), appSrc6.indexOf('// 7. WAV Export setup'));
-assert.ok(uploadBody.includes('autoRunToken'), 'upload cancels an in-flight AUTO run');
+assert.ok(uploadBody.includes('cancelAutoRun()'), 'upload cancels an in-flight AUTO run');
+const cancelBody = appSrc6.slice(appSrc6.indexOf('/** Cancel an in-flight AUTO run'), appSrc6.indexOf('function ensureAudioContext'));
+assert.ok(cancelBody.includes('autoRunToken') && cancelBody.includes('disabled = false'), 'cancel re-enables the AUTO button');
 console.log('Refresh parity: PASS');

@@ -38,6 +38,47 @@ let seekerAnimFrame = null;
 // ============================================================================
 // Audio Context & Playback Management
 // ============================================================================
+let savedBypassState = false;
+
+/**
+ * Single source of truth for bypass: DSP, UI, pills and the export track type
+ * move together, so export can never disagree with what the user hears.
+ */
+function applyBypassState(bypassed) {
+  if (dsp) dsp.setBypass(bypassed);
+  if (ui) ui.setBypassState(bypassed);
+  currentTrackType = uploadedBuffer
+    ? (bypassed ? 'custom_raw' : 'custom_processed')
+    : (bypassed ? 'raw' : 'cleaned');
+  const cleanBtn = document.getElementById('trackCleanBtn');
+  const rawBtn = document.getElementById('trackRawBtn');
+  if (cleanBtn) cleanBtn.classList.toggle('active', !bypassed);
+  if (rawBtn) rawBtn.classList.toggle('active', bypassed);
+}
+
+/** Drop AUTO state so manual presets, knob tweaks and new uploads start clean. */
+function clearAutoParams() {
+  autoParams = null;
+  autoReport = null;
+  autoIssues = [];
+  if (dsp) {
+    Object.assign(dsp.params, {
+      autoTrimDb: 0, integratedLUFS: null, targetLUFS: null, sibilance: 0,
+      hfCutoff: 0, correlation: 1, msBass: 0, crestFactorDB: 12, limiterEngaged: false,
+    });
+  }
+  if (spectrum) spectrum.setAutoIssues([]);
+  renderAutoIssues([]);
+}
+
+/** Cancel an in-flight AUTO run and restore its controls (upload, revert). */
+function cancelAutoRun() {
+  autoRunToken++;
+  const btn = document.getElementById('autoBtn');
+  if (btn) btn.disabled = false;
+  setAutoProgress('Idle');
+}
+
 function ensureAudioContext() {
   if (!audioCtx) {
     const AudioContextClass = window.AudioContext || window.webkitAudioContext;
@@ -62,6 +103,9 @@ function ensureAudioContext() {
         autoTrimDb: autoParams.autoTrimDb || 0,
       });
     }
+    // Restore ran before dsp existed, so apply the saved bypass now or the
+    // user would hear processed audio under a BYPASS (RAW) label.
+    applyBypassState(savedBypassState);
   }
   if (audioCtx.state === 'suspended') {
     audioCtx.resume();
@@ -77,13 +121,17 @@ function applyCompositeKnobDSP() {
   dsp.updateAllFromState(currentKnobValues);
 }
 
+let loadAudioToken = 0;
+
 async function loadAudioFile(url) {
+  const token = ++loadAudioToken; // rapid pill clicks: last click wins, not last decode
   ensureAudioContext();
   const statusEl = document.getElementById('forensicStatus');
   if (statusEl) statusEl.textContent = 'Loading audio buffer...';
 
   try {
     let response = await fetch(url);
+    if (token !== loadAudioToken) return;
     if (!response.ok && url.endsWith('.wav')) {
       const oggUrl = url.replace(/\.wav$/, '.ogg');
       const oggResp = await fetch(oggUrl);
@@ -96,10 +144,13 @@ async function loadAudioFile(url) {
     }
 
     const arrayBuffer = await response.arrayBuffer();
-    currentBuffer = await new Promise((resolve, reject) => {
+    if (token !== loadAudioToken) return;
+    const decoded = await new Promise((resolve, reject) => {
       audioCtx.decodeAudioData(arrayBuffer, resolve, reject);
     });
+    if (token !== loadAudioToken) return;
 
+    currentBuffer = decoded;
     runForensicAnalysis(currentBuffer);
 
     playbackOffset = 0;
@@ -111,6 +162,7 @@ async function loadAudioFile(url) {
     }
   } catch (err) {
     console.error('Audio load error:', err);
+    if (token !== loadAudioToken) return;
     if (statusEl) {
       statusEl.textContent = `Audio load failed: ${err.message || 'File not found'}`;
     }
@@ -440,14 +492,7 @@ function handleCompositeKnobChange(knobId, knobVal) {
   if (!registry || !registryDom) return;
 
   // If currently bypassed, automatically re-engage DSP so moving knobs reveals the live effect!
-  if (dsp && dsp.isBypassed) {
-    if (ui) ui.setBypassState(false);
-    dsp.setBypass(false);
-    const trackCleanBtn = document.getElementById('trackCleanBtn');
-    const trackRawBtn = document.getElementById('trackRawBtn');
-    if (trackCleanBtn) trackCleanBtn.classList.add('active');
-    if (trackRawBtn) trackRawBtn.classList.remove('active');
-  }
+  if (dsp && dsp.isBypassed) applyBypassState(false);
 
   // When manually tweaking knobs away from a preset, mark the profile as Custom
   if (currentPresetKey !== 'custom') {
@@ -472,6 +517,7 @@ let autoParams = null;
 let autoIssues = [];
 let lastManualPreset = 'standardEvasion';
 let autoRunToken = 0;
+let autoActiveRuns = 0; // runs in flight; button re-enables only when all settle
 
 function autoTargetLUFS() {
   const sel = document.getElementById('autoTargetLUFS');
@@ -575,8 +621,7 @@ function applyAutoReport(report, auto) {
   if (ui) ui.setPresetDisplay(auto.presetKey);
 
   // AUTO must engage the chain, not leave BYPASS (RAW) on.
-  if (dsp) dsp.setBypass(false);
-  if (ui) ui.setBypassState(false);
+  applyBypassState(false);
 
   // Rebuild the live chain so it matches export exactly.
   if (dsp && isPlaying) startPlayback();
@@ -601,6 +646,7 @@ async function runAutoMaster() {
     return;
   }
   const token = ++autoRunToken;
+  autoActiveRuns++;
   const buffer = currentBuffer;
   const btn = document.getElementById('autoBtn');
   if (btn) btn.disabled = true;
@@ -633,7 +679,11 @@ async function runAutoMaster() {
     if (statusEl) statusEl.textContent = `AUTO failed: ${err.message}`;
     setAutoProgress('Failed');
   } finally {
-    if (token === autoRunToken && btn) btn.disabled = false;
+    // Re-enable only when no other run is in flight: an upload cancels this
+    // run (re-enable), but a re-run from the target selector replaced it
+    // (leave the button disabled for the new run).
+    autoActiveRuns = Math.max(0, autoActiveRuns - 1);
+    if (btn && autoActiveRuns === 0) btn.disabled = false;
   }
 }
 
@@ -646,6 +696,10 @@ function applyPreset(presetKey) {
   lastManualPreset = presetKey;
   const p = registry.presets[presetKey];
 
+  // A manual preset must not inherit the previous track's AUTO calibration:
+  // integratedLUFS/autoTrimDb would keep driving loudness behind the preset.
+  clearAutoParams();
+
   // Apply composite knob values from preset
   for (const [knobId, val] of Object.entries(p.compositeValues)) {
     const k = registryDom.knobsMap[knobId];
@@ -654,23 +708,11 @@ function applyPreset(presetKey) {
 
   applyCompositeKnobDSP();
 
-  // If Off profile is selected, activate bypass so pure unadulterated original audio plays
-  const trackRawBtn = document.getElementById('trackRawBtn');
-  const trackCleanBtn = document.getElementById('trackCleanBtn');
-
+  // Off plays the original straight through; any other preset re-engages DSP.
   if (presetKey === 'off') {
-    if (ui) ui.setBypassState(true);
-    if (dsp) dsp.setBypass(true);
-    if (trackRawBtn) trackRawBtn.classList.add('active');
-    if (trackCleanBtn) trackCleanBtn.classList.remove('active');
-  } else {
-    // If switching from Off to an active evasion preset, re-engage DSP active
-    if (ui && ui.isBypassed) {
-      ui.setBypassState(false);
-      if (dsp) dsp.setBypass(false);
-      if (trackCleanBtn) trackCleanBtn.classList.add('active');
-      if (trackRawBtn) trackRawBtn.classList.remove('active');
-    }
+    applyBypassState(true);
+  } else if (ui && ui.isBypassed) {
+    applyBypassState(false);
   }
 
   // Persist active preset & knob state to browser storage
@@ -686,11 +728,11 @@ function setupAutoControls() {
   const targetSel = document.getElementById('autoTargetLUFS');
   if (targetSel) targetSel.addEventListener('change', () => { if (autoReport) runAutoMaster(); });
   const origBtn = document.getElementById('playOriginalBtn');
-  if (origBtn) origBtn.addEventListener('click', () => { if (dsp) dsp.setBypass(true); if (ui) ui.setBypassState(true); if (!isPlaying) startPlayback(); });
+  if (origBtn) origBtn.addEventListener('click', () => { applyBypassState(true); if (!isPlaying) startPlayback(); });
   const autoPlayBtn = document.getElementById('playAutoBtn');
-  if (autoPlayBtn) autoPlayBtn.addEventListener('click', () => { if (dsp) dsp.setBypass(false); if (ui) ui.setBypassState(false); startPlayback(); });
+  if (autoPlayBtn) autoPlayBtn.addEventListener('click', () => { applyBypassState(false); startPlayback(); });
   const revertBtn = document.getElementById('revertManualBtn');
-  if (revertBtn) revertBtn.addEventListener('click', () => { autoParams = null; autoReport = null; autoIssues = []; if (dsp) Object.assign(dsp.params, { autoTrimDb: 0, integratedLUFS: null, sibilance: 0, hfCutoff: 0, correlation: 1, msBass: 0, crestFactorDB: 12 }); if (spectrum) spectrum.setAutoIssues([]); renderAutoIssues([]); applyPreset(lastManualPreset || 'standardEvasion'); if (isPlaying) startPlayback(); setAutoProgress('Reverted to manual preset'); });
+  if (revertBtn) revertBtn.addEventListener('click', () => { clearAutoParams(); applyPreset(lastManualPreset || 'standardEvasion'); if (isPlaying) startPlayback(); setAutoProgress('Reverted to manual preset'); });
 }
 
 // ============================================================================
@@ -807,8 +849,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     ui = new UIController(registry, {
       onPresetSelect: (presetKey) => applyPreset(presetKey),
       onBypassToggle: (isBypassed) => {
-        if (dsp) dsp.setBypass(isBypassed);
-        syncPillsWithAudioState(isBypassed);
+        applyBypassState(isBypassed);
         persistCurrentSettings();
       },
     });
@@ -835,19 +876,14 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     if (trackCleanBtn) {
       trackCleanBtn.addEventListener('click', () => {
-        syncPillsWithAudioState(false);
         if (uploadedBuffer) {
           // Stay on user's uploaded audio with live DSP evasion processing
-          currentTrackType = 'custom_processed';
           currentBuffer = uploadedBuffer;
-          if (dsp) dsp.setBypass(false);
-          if (ui) ui.setBypassState(false);
+          applyBypassState(false);
           if (!isPlaying) startPlayback();
         } else {
           // In demo mode: load processed demo
-          currentTrackType = 'cleaned';
-          if (dsp) dsp.setBypass(false);
-          if (ui) ui.setBypassState(false);
+          applyBypassState(false);
           loadAudioFile('audio/demo_original.wav');
         }
       });
@@ -855,19 +891,14 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     if (trackRawBtn) {
       trackRawBtn.addEventListener('click', () => {
-        syncPillsWithAudioState(true);
         if (uploadedBuffer) {
           // Stay on user's uploaded audio with raw direct bypass (dry original)
-          currentTrackType = 'custom_raw';
           currentBuffer = uploadedBuffer;
-          if (dsp) dsp.setBypass(true);
-          if (ui) ui.setBypassState(true);
+          applyBypassState(true);
           if (!isPlaying) startPlayback();
         } else {
           // In demo mode: load original demo
-          currentTrackType = 'raw';
-          if (dsp) dsp.setBypass(true);
-          if (ui) ui.setBypassState(true);
+          applyBypassState(true);
           loadAudioFile('audio/demo_original.wav');
         }
       });
@@ -881,15 +912,12 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (trackCleanBtn) trackCleanBtn.textContent = 'PROCESSED DEMO';
         if (trackRawBtn) trackRawBtn.textContent = 'ORIGINAL DEMO';
         resetDemoBtn.style.display = 'none';
-        syncPillsWithAudioState(false);
-        if (dsp) dsp.setBypass(false);
-        if (ui) ui.setBypassState(false);
+        applyBypassState(false);
         persistCurrentSettings();
         updatePlayButtonUI(isPlaying);
         if (scopeModeLabel) {
           scopeModeLabel.textContent = '2048-point FFT — slate: original, ochre: processed';
         }
-        currentTrackType = 'cleaned';
         loadAudioFile('audio/demo_original.wav');
       });
     }
@@ -900,7 +928,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         const file = e.target.files[0];
         if (!file) return;
 
-        autoRunToken++; // cancel any in-flight AUTO calibration for the old track
+        cancelAutoRun(); // cancel any in-flight AUTO calibration for the old track
         ensureAudioContext();
 
         const statusEl = document.getElementById('forensicStatus');
@@ -909,25 +937,24 @@ document.addEventListener('DOMContentLoaded', async () => {
         try {
           const arrayBuffer = await file.arrayBuffer();
 
-          // Persist uploaded audio to IndexedDB so browser refresh never loses progress!
-          await PersistenceManager.saveUploadedAudio(arrayBuffer, file.name);
-
-          // Decode a clone of the arrayBuffer (decodeAudioData detaches original)
+          // Decode FIRST and only then persist: decodeAudioData detaches the
+          // buffer, and a file that fails decode must not have overwritten
+          // the previous good track in IndexedDB.
           const decoded = await audioCtx.decodeAudioData(arrayBuffer.slice(0));
+          const persisted = await PersistenceManager.saveUploadedAudio(arrayBuffer, file.name);
 
           uploadedBuffer = decoded;
           currentBuffer = decoded;
           uploadedFileName = file.name.replace(/\.[^/.]+$/, '');
-          currentTrackType = 'custom_processed';
+
+          // A new track must not inherit the old one's AUTO calibration.
+          clearAutoParams();
+          applyBypassState(false);
 
           // When a file is uploaded, the demo is no more: switch pills to PROCESSED AUDIO & ORIGINAL AUDIO
           if (trackCleanBtn) trackCleanBtn.textContent = 'PROCESSED AUDIO';
           if (trackRawBtn) trackRawBtn.textContent = 'ORIGINAL AUDIO';
           if (resetDemoBtn) resetDemoBtn.style.display = 'inline-flex';
-          syncPillsWithAudioState(false);
-
-          if (dsp) dsp.setBypass(false);
-          if (ui) ui.setBypassState(false);
           persistCurrentSettings();
 
           if (scopeModeLabel) {
@@ -944,7 +971,9 @@ document.addEventListener('DOMContentLoaded', async () => {
           startPlayback(0);
           updatePlayButtonUI(true);
 
-          if (statusEl) statusEl.textContent = `Playing uploaded file: ${file.name} (persisted in browser storage)`;
+          if (statusEl) statusEl.textContent = persisted
+            ? `Playing uploaded file: ${file.name} (persisted in browser storage)`
+            : `Playing uploaded file: ${file.name} (not persisted — storage full or unavailable)`;
         } catch (err) {
           console.error('File decode error:', err);
           if (statusEl) statusEl.textContent = `Could not decode audio: ${err.message}`;
@@ -986,9 +1015,10 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
       }
       if (savedSettings.isBypassed) {
-        if (ui) ui.setBypassState(true);
-        if (dsp) dsp.setBypass(true);
-        syncPillsWithAudioState(true);
+        // dsp may not exist yet (created on first user gesture); remember the
+        // state so ensureAudioContext applies it, and reflect it in the UI now.
+        savedBypassState = true;
+        applyBypassState(true);
       }
     } else {
       applyPreset('standardEvasion');
@@ -1009,12 +1039,12 @@ document.addEventListener('DOMContentLoaded', async () => {
         currentBuffer = decoded;
         uploadedFileName = savedAudio.fileName.replace(/\.[^/.]+$/, '');
         const isBypassed = savedSettings ? !!savedSettings.isBypassed : false;
-        currentTrackType = isBypassed ? 'custom_raw' : 'custom_processed';
+        savedBypassState = isBypassed;
+        applyBypassState(isBypassed);
 
         if (trackCleanBtn) trackCleanBtn.textContent = 'PROCESSED AUDIO';
         if (trackRawBtn) trackRawBtn.textContent = 'ORIGINAL AUDIO';
         if (resetDemoBtn) resetDemoBtn.style.display = 'inline-flex';
-        syncPillsWithAudioState(isBypassed);
 
         if (scopeModeLabel) {
           scopeModeLabel.textContent = '2048-point FFT — slate: original, ochre: processed';
@@ -1029,6 +1059,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         if (statusEl) statusEl.textContent = `Restored session audio: ${savedAudio.fileName}`;
       } catch (err) {
         console.warn('Failed to restore uploaded audio from IndexedDB:', err);
+        // A record that cannot decode would trap every reload in this catch:
+        // drop it so the next session starts from the demo instead.
+        await PersistenceManager.clearUploadedAudio();
         loadAudioFile('audio/demo_original.wav');
       }
     } else {
