@@ -131,6 +131,18 @@ console.log('stego echo behind 3s silent intro:', introEcho.confidence, introEch
 assert.ok(introEcho.confidence > 0.5, `echo behind a silent intro reported conf ${introEcho.confidence} — detector only read the track's first second`);
 assert.ok(introEcho.echoes[0] && Math.abs(introEcho.echoes[0].delayMs - 3) < 0.2, 'intro-case echo delay near 3 ms');
 
+// The AUTO mapper must receive the track's real spectral flatness, or the
+// flatness rule can never fire and spectralBlend silently stays at base.
+let flatSeed = 777;
+const noiseTrack = new Float32Array(SR * 4);
+for (let i = 0; i < noiseTrack.length; i++) { flatSeed = (flatSeed * 1103515245 + 12345) & 0x7fffffff; noiseTrack[i] = ((flatSeed / 0x3fffffff) - 1) * 0.3; }
+const noiseReport = SpectralAnalyzer.analyzeFullTrack(fakeBuffer([noiseTrack, noiseTrack], SR));
+console.log('noise-track flatness:', noiseReport.spectralFlatness);
+assert.ok(Number.isFinite(noiseReport.spectralFlatness), 'analyzeFullTrack must report spectralFlatness for the AUTO mapper');
+assert.ok(noiseReport.spectralFlatness > 0.3, `white noise flatness ${noiseReport.spectralFlatness} should exceed the 0.3 rule threshold`);
+const flatMapped = mapAutoReport(noiseReport, -14);
+assert.ok(flatMapped.params.spectralBlend > 40, `flat track must raise spectralBlend above base 40, got ${flatMapped.params.spectralBlend}`);
+
 console.log('Task 2: PASS');
 // ---- Task 4: one shared mastering chain ----
 import { readFileSync as readFs } from 'node:fs';
