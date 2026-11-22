@@ -155,6 +155,14 @@ const longReport = SpectralAnalyzer.analyzeFullTrack(longBuf);
 console.log('late-mid sibilance burst:', longReport.sibilance);
 assert.ok(longReport.sibilance > 0.05, `6 kHz burst mid-track missed: sibilance ${longReport.sibilance} — band energy sampled only a few windows`);
 
+// A buffer under 2048 samples is real audio, not silence: a full-scale click
+// must report its true peak and no silence range.
+const click = new Float32Array(1000).fill(0.999);
+const clickReport = SpectralAnalyzer.analyzeFullTrack(fakeBuffer([click, click], SR));
+console.log('short click buffer: peak', clickReport.peakDBFS, 'silence', JSON.stringify(clickReport.silenceRanges));
+assert.ok(Number.isFinite(clickReport.peakDBFS) && clickReport.peakDBFS > -1, `1000-sample click read as silent (peak ${clickReport.peakDBFS})`);
+assert.equal(clickReport.silenceRanges.length, 0, 'full-scale click must not be reported as a silence range');
+
 console.log('Task 2: PASS');
 // ---- Task 4: one shared mastering chain ----
 import { readFileSync as readFs } from 'node:fs';

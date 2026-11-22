@@ -117,4 +117,24 @@ const legacyOnly = stubStorage({ [LEGACY]: JSON.stringify(legacyPayload) });
 PersistenceManager.clearSettings();
 assert.equal(PersistenceManager.loadSettings(), null, 'clearSettings left the legacy key behind — settings resurrect');
 assert.ok(!(LEGACY in legacyOnly), 'clearSettings did not remove the legacy key');
+// 3d. Export must render past the last input sample: the chain has a 3 ms hash
+// delay, a 47 ms room path and 50-140 ms compressor releases, so rendering
+// exactly buffer.length cuts the chain's own tail off.
+const SR_TAIL = 44100;
+let capturedLength = 0;
+globalThis.OfflineAudioContext = class {
+  constructor(channels, length, sampleRate) {
+    capturedLength = length;
+    Object.assign(this, ctx);
+    this.destination = { connect() {} };
+    this.createBufferSource = () => ({ buffer: null, connect() {}, start() {}, disconnect() {} });
+    this.startRendering = async () => ({ length, numberOfChannels: channels, sampleRate, getChannelData: () => new Float32Array(length) });
+  }
+};
+const tailBuf = { numberOfChannels: 2, length: SR_TAIL, sampleRate: SR_TAIL, getChannelData: () => new Float32Array(SR_TAIL) };
+await MaestroDSP.renderChain(tailBuf, {});
+console.log('renderChain length:', capturedLength, 'input:', SR_TAIL, 'extra:', capturedLength - SR_TAIL);
+assert.ok(capturedLength > SR_TAIL, 'renderChain must render a tail so the room/limiter decay is not cut off');
+assert.ok(capturedLength - SR_TAIL >= Math.round(0.1 * SR_TAIL), 'tail must cover at least 100 ms of chain decay');
+
 console.log('Storage fallback: PASS');

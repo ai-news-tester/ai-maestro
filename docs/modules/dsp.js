@@ -514,14 +514,32 @@ export class MaestroDSP {
    */
   /** Render one buffer through the shared chain offline (export + AUTO calibration). */
   static async renderChain(audioBuffer, params = {}) {
-    const offlineCtx = new OfflineAudioContext(audioBuffer.numberOfChannels, audioBuffer.length, audioBuffer.sampleRate);
+    // The chain has a 3 ms hash delay, a 47 ms room path and 50-140 ms compressor
+    // releases: rendering exactly buffer.length would cut the chain's own decay
+    // off the end of the track. Render 100 ms past the input, then trim.
+    const tail = Math.round(0.1 * audioBuffer.sampleRate);
+    const offlineCtx = new OfflineAudioContext(audioBuffer.numberOfChannels, audioBuffer.length + tail, audioBuffer.sampleRate);
     const source = offlineCtx.createBufferSource();
     source.buffer = audioBuffer;
     const chain = MaestroDSP.buildMasterChain(offlineCtx, params);
     source.connect(chain.input);
     chain.output.connect(offlineCtx.destination);
     source.start(0);
-    return offlineCtx.startRendering();
+    const rendered = await offlineCtx.startRendering();
+    return rendered.length === audioBuffer.length ? rendered : this.trimToLength(rendered, audioBuffer.length);
+  }
+
+  /** Copy the first `length` frames of a rendered buffer into a new buffer. */
+  static trimToLength(buffer, length) {
+    const chans = [];
+    for (let c = 0; c < buffer.numberOfChannels; c++) chans.push(buffer.getChannelData(c).slice(0, length));
+    if (typeof AudioBuffer === 'function') {
+      const trimmed = new AudioBuffer({ length, numberOfChannels: buffer.numberOfChannels, sampleRate: buffer.sampleRate });
+      for (let c = 0; c < chans.length; c++) trimmed.copyToChannel(chans[c], c);
+      return trimmed;
+    }
+    // Node test env: no AudioBuffer constructor; a shaped plain object is enough.
+    return { length, numberOfChannels: buffer.numberOfChannels, sampleRate: buffer.sampleRate, getChannelData: (c) => chans[c] };
   }
 
   /** Measure a rendered buffer with the same BS.1770 meter the report uses. */

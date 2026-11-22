@@ -623,7 +623,17 @@ export class SpectralAnalyzer {
     const left = buffer.getChannelData(0);
     const right = buffer.numberOfChannels > 1 ? buffer.getChannelData(1) : left;
     const duration = buffer.duration || len / sr;
-    if (len < 2048) return { integratedLUFS: -Infinity, loudnessRange: 0, truePeakDBTP: -Infinity, peakDBFS: -Infinity, rmsDBFS: -Infinity, crestFactorDB: 0, clippingCount: 0, dcOffsetL: 0, dcOffsetR: 0, silenceRanges: [{ start: 0, end: +duration.toFixed(3) }], fadeIn: 0, fadeOut: 0, stereoWidth: 0, correlation: 0, monoLowsDB: -Infinity, spectralTilt: 0, harshPeaks: [], sibilance: 0, hfCutoff: sr / 2, carriers: [], echoConfidence: 0, shimmer: { score: 0, confidence: 0 }, sampleRate: sr, duration };
+    if (len < 2048) {
+      // Too short for STFT/loudness gating, but the samples are still real:
+      // measure peak/RMS/clipping directly and only call it silence when the
+      // RMS genuinely is, instead of reporting a full-scale click as silence.
+      const peak = AudioMath.peakDBFS(left);
+      const rms = AudioMath.rmsDBFS(left);
+      let clips = 0;
+      for (let i = 0; i < len; i++) if (Math.abs(left[i]) >= 0.999) clips++;
+      const silent = !Number.isFinite(rms) || rms < -60;
+      return { integratedLUFS: -Infinity, loudnessRange: 0, truePeakDBTP: Number.isFinite(peak) ? peak : -Infinity, peakDBFS: peak, rmsDBFS: rms, crestFactorDB: Number.isFinite(peak) && Number.isFinite(rms) ? +(peak - rms).toFixed(1) : 0, clippingCount: clips, dcOffsetL: 0, dcOffsetR: 0, silenceRanges: silent ? [{ start: 0, end: +duration.toFixed(3) }] : [], fadeIn: 0, fadeOut: 0, stereoWidth: 0, correlation: 0, monoLowsDB: -Infinity, spectralTilt: 0, harshPeaks: [], sibilance: 0, hfCutoff: sr / 2, carriers: [], echoConfidence: 0, shimmer: { score: 0, confidence: 0 }, sampleRate: sr, duration };
+    }
     let clippingCount = 0, sumL = 0, sumR = 0;
     for (let i = 0; i < len; i++) { if (Math.abs(left[i]) >= 0.999) clippingCount++; if (right !== left && Math.abs(right[i]) >= 0.999) clippingCount++; sumL += left[i]; sumR += right[i]; }
     let cov = 0, vl = 0, vr = 0, side = 0, mid = 0;
