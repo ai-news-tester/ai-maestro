@@ -521,6 +521,10 @@ export class SpectralAnalyzer {
     const step = Math.max(1, Math.round(0.1 * sr));
     const blocks = [];
     for (let s = 0; s + blockLen <= n; s += step) blocks.push(blockEnergy(s, s + blockLen));
+    // BS.1770-5 anchors the final block at n - blockLen, so audio only in the
+    // tail is measured instead of falling out of the 100 ms grid.
+    const anchor = n - blockLen;
+    if (anchor > 0 && anchor % step !== 0) blocks.push(blockEnergy(anchor, n));
     const absGated = blocks.filter((z) => loud(z) > -70);
     let integrated = -Infinity;
     if (absGated.length > 0) {
@@ -536,6 +540,10 @@ export class SpectralAnalyzer {
     const stStep = Math.max(1, Math.round(1 * sr));
     const st = [];
     for (let s = 0; s + stLen <= n; s += stStep) st.push(loud(blockEnergy(s, s + stLen)));
+    // Same tail anchor as the integrated pass: the last short-term window must
+    // cover the end of the track.
+    const stAnchor = n - stLen;
+    if (stAnchor > 0 && stAnchor % stStep !== 0) st.push(loud(blockEnergy(stAnchor, n)));
     let lra = 0;
     const stAbs = st.filter((l) => l > -70);
     if (stAbs.length > 1) {
@@ -665,10 +673,24 @@ export class SpectralAnalyzer {
     let hfCutoff = sr / 2, peakE = 0;
     for (const v of avg) if (v > peakE) peakE = v;
     for (let k = half - 1; k >= 0; k--) { if (avg[k] > peakE * 1e-4) { hfCutoff = Math.round(k * (sr / nfft)); break; } } // 1% of peak magnitude == 1e-4 of peak power (avg holds power)
+    // Harsh resonances: narrow local maxima in the 2-10 kHz presence band standing
+    // above the local floor (moving median, as CarrierDetector floors its spectrum).
+    // The AUTO mapper raises spectralBlend when prominence exceeds 6 dB.
+    const harshFloor = AudioMath.movingMedian(avg, 50);
+    const harshPeaks = [];
+    const hLo = Math.max(2, Math.floor(2000 / (sr / nfft))), hHi = Math.min(half - 2, Math.ceil(10000 / (sr / nfft)));
+    for (let k = hLo; k <= hHi; k++) {
+      if (avg[k] > avg[k - 1] && avg[k] > avg[k + 1]) {
+        const prom = 10 * Math.log10((avg[k] + 1e-20) / (harshFloor[k] + 1e-20));
+        if (prom > 6) harshPeaks.push({ freqHz: Math.round(k * (sr / nfft)), prominenceDB: +prom.toFixed(2) });
+      }
+    }
+    harshPeaks.sort((a, b) => b.prominenceDB - a.prominenceDB);
+    if (harshPeaks.length > 4) harshPeaks.length = 4;
     let carrier = { carriers: [] }, stego = { confidence: 0 };
     try { carrier = CarrierDetector.analyze(mono, sr); } catch {}
     try { stego = StegoDetector.analyze(mono, sr); } catch {}
     const lastR = ranges[ranges.length - 1];
-    return { integratedLUFS: loud.integratedLUFS, loudnessRange: loud.loudnessRange, truePeakDBTP: loud.truePeakDBTP, peakDBFS: base.peakDBFS, rmsDBFS: base.rmsDBFS, crestFactorDB: base.crestFactorDB, spectralFlatness: base.spectralFlatness, clippingCount, dcOffsetL: +(sumL / len).toFixed(6), dcOffsetR: +(sumR / len).toFixed(6), silenceRanges: ranges, fadeIn: ranges.length && ranges[0].start === 0 ? ranges[0].end : 0, fadeOut: lastR && Math.abs(lastR.end - duration) < 0.1 ? +(duration - lastR.start).toFixed(3) : 0, stereoWidth: +stereoWidth.toFixed(4), correlation: +correlation.toFixed(4), monoLowsDB: +(10 * Math.log10(bandE(20, 120) / totalE + 1e-12)).toFixed(2), spectralTilt: +(10 * Math.log10((bandE(8000, 16000) + 1e-12) / (bandE(100, 1000) + 1e-12))).toFixed(2), harshPeaks: [], sibilance: +(bandE(5000, 8000) / totalE).toFixed(4), hfCutoff, carriers: carrier.carriers || [], echoConfidence: stego.confidence || 0, shimmer: this.measureShimmer(mono, sr), sampleRate: sr, duration };
+    return { integratedLUFS: loud.integratedLUFS, loudnessRange: loud.loudnessRange, truePeakDBTP: loud.truePeakDBTP, peakDBFS: base.peakDBFS, rmsDBFS: base.rmsDBFS, crestFactorDB: base.crestFactorDB, spectralFlatness: base.spectralFlatness, clippingCount, dcOffsetL: +(sumL / len).toFixed(6), dcOffsetR: +(sumR / len).toFixed(6), silenceRanges: ranges, fadeIn: ranges.length && ranges[0].start === 0 ? ranges[0].end : 0, fadeOut: lastR && Math.abs(lastR.end - duration) < 0.1 ? +(duration - lastR.start).toFixed(3) : 0, stereoWidth: +stereoWidth.toFixed(4), correlation: +correlation.toFixed(4), monoLowsDB: +(10 * Math.log10(bandE(20, 120) / totalE + 1e-12)).toFixed(2), spectralTilt: +(10 * Math.log10((bandE(8000, 16000) + 1e-12) / (bandE(100, 1000) + 1e-12))).toFixed(2), harshPeaks, sibilance: +(bandE(5000, 8000) / totalE).toFixed(4), hfCutoff, carriers: carrier.carriers || [], echoConfidence: stego.confidence || 0, shimmer: this.measureShimmer(mono, sr), sampleRate: sr, duration };
   }
 }

@@ -163,6 +163,32 @@ console.log('short click buffer: peak', clickReport.peakDBFS, 'silence', JSON.st
 assert.ok(Number.isFinite(clickReport.peakDBFS) && clickReport.peakDBFS > -1, `1000-sample click read as silent (peak ${clickReport.peakDBFS})`);
 assert.equal(clickReport.silenceRanges.length, 0, 'full-scale click must not be reported as a silence range');
 
+// Loudness gating must cover the END of the track: blocks stop at the last full
+// 400 ms window, so audio only in the final partial window used to be unheard
+// by the integrated measurement. BS.1770-5 anchors a final block at n - blockLen.
+{
+  const tailLen = Math.round(SR * 1.05); // 50 ms past the last full block grid point
+  const tailTone = new Float32Array(tailLen);
+  for (let i = Math.round(SR * 1.0); i < tailLen; i++) tailTone[i] = 0.5 * Math.sin((2 * Math.PI * 1000 * i) / SR);
+  const tailM = SpectralAnalyzer.measureLoudness(tailTone, tailTone, SR);
+  console.log('tail-only loudness:', tailM.integratedLUFS);
+  assert.ok(Number.isFinite(tailM.integratedLUFS), `audio only in the last 50 ms was excluded from integrated loudness (${tailM.integratedLUFS})`);
+}
+
+// Harsh resonances: a strong narrow 7 kHz peak must be measured as a harshPeak
+// and raise spectralBlend. The mapper rule existed but analyzeFullTrack never
+// filled the field, so it could never fire on real audio.
+{
+  const harsh = new Float32Array(SR * 4);
+  for (let i = 0; i < harsh.length; i++) harsh[i] = 0.4 * Math.sin((2 * Math.PI * 440 * i) / SR) + 0.25 * Math.sin((2 * Math.PI * 7000 * i) / SR);
+  const harshReport = SpectralAnalyzer.analyzeFullTrack(fakeBuffer([harsh, harsh], SR));
+  console.log('harsh peaks:', JSON.stringify(harshReport.harshPeaks));
+  assert.ok(harshReport.harshPeaks.length > 0, '7 kHz resonance must be measured as a harsh peak');
+  assert.ok(harshReport.harshPeaks[0].prominenceDB > 6, `harsh prominence ${harshReport.harshPeaks[0].prominenceDB} must exceed the 6 dB rule threshold`);
+  const harshMapped = mapAutoReport(harshReport, -14);
+  assert.ok(harshMapped.params.spectralBlend > 40, `harsh track must raise spectralBlend above base 40, got ${harshMapped.params.spectralBlend}`);
+}
+
 console.log('Task 2: PASS');
 // ---- Task 4: one shared mastering chain ----
 import { readFileSync as readFs } from 'node:fs';
