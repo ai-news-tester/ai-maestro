@@ -310,11 +310,14 @@ export class StegoDetector {
     const qLo = Math.max(2, Math.floor(sr * 0.0004)); // >0.4ms
     const qHi = Math.min(frameSize / 2, Math.ceil(sr * 0.010)); // <10ms
 
-    // Accumulate cepstra across multiple frames
+    // Spread the frames across the WHOLE track, the same pattern analyzeFullTrack
+    // uses for its spectral average. Reading 8 consecutive frames from sample 0
+    // analysed only the first ~0.77 s, so a silent intro hid an echo that ran
+    // through the rest of the song.
     const cepFrames = [];
     for (let f = 0; f < numFrames; f++) {
-      const seg = samples.slice(f * hop, f * hop + frameSize);
-      cepFrames.push(this.computeRealCepstrum(seg, win));
+      const off = numFrames > 1 ? Math.floor((f * (samples.length - frameSize)) / (numFrames - 1)) : 0;
+      cepFrames.push(this.computeRealCepstrum(samples.slice(off, off + frameSize), win));
     }
 
     // Average cepstrum across time

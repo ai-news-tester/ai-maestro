@@ -118,6 +118,19 @@ const sawEcho = StegoDetector.analyze(sawTone, SR);
 console.log('stego sawtooth confidence:', sawEcho.confidence);
 assert.ok(sawEcho.confidence < 0.5, `pitched tone (sawtooth) reported as echo conf ${sawEcho.confidence} — pitch ladder not rejected`);
 
+// Whole-track coverage: the detector must sample frames across the ENTIRE
+// track, not just its first ~0.77 s. Common master: silent intro, then a
+// watermark echo that runs through the rest of the song.
+let introSeed = 424242;
+const introNoise = new Float32Array(SR * 12);
+for (let i = 0; i < introNoise.length; i++) { introSeed = (introSeed * 1103515245 + 12345) & 0x7fffffff; introNoise[i] = (introSeed / 0x3fffffff) - 1; }
+const introTrack = new Float32Array(SR * 12);
+for (let i = 3 * SR; i < introTrack.length; i++) introTrack[i] = introNoise[i] + (i >= d3ms ? 0.6 * introNoise[i - d3ms] : 0);
+const introEcho = StegoDetector.analyze(introTrack, SR);
+console.log('stego echo behind 3s silent intro:', introEcho.confidence, introEcho.echoes[0] ? introEcho.echoes[0].delayMs + ' ms' : 'none');
+assert.ok(introEcho.confidence > 0.5, `echo behind a silent intro reported conf ${introEcho.confidence} — detector only read the track's first second`);
+assert.ok(introEcho.echoes[0] && Math.abs(introEcho.echoes[0].delayMs - 3) < 0.2, 'intro-case echo delay near 3 ms');
+
 console.log('Task 2: PASS');
 // ---- Task 4: one shared mastering chain ----
 import { readFileSync as readFs } from 'node:fs';
