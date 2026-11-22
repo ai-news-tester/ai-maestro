@@ -41,6 +41,16 @@ console.log('qualityGate 6 -> limiter thresh:', dsp.qualityLimiter.threshold.v, 
 dsp.updateFromKnob('outputGain', 6);
 console.log('outputGain 6dB -> gain:', dsp.outGain.gain.v, 'expected:', Math.pow(10, 6 / 20).toFixed(4));
 
+// 3b. Glue compressor threshold: live knob path must equal the shared chain path.
+// A crest of 20 dB caps the threshold at -16.2 dB; the live path ignored the cap
+// and reported -6 dB, so what you heard was not what export rendered.
+dsp.params.crestFactorDB = 20;
+dsp.updateFromKnob('dynamicsNatural', 0);
+const liveGlueThresh = dsp.dynamicsComp.threshold.v;
+const chainGlueThresh = MaestroDSP.buildMasterChain(ctx, { crestFactorDB: 20, dynamicsNatural: 0 }, {}).nodes.dynamicsComp.threshold.v;
+console.log('glue threshold crest 20 dynamics 0 -> live:', liveGlueThresh, 'chain:', chainGlueThresh);
+assert.equal(liveGlueThresh, chainGlueThresh, 'live glue threshold must match the shared chain (export) threshold');
+
 // 4. Shift+wheel fine tune: 0.25 + 0.05 (0.2*step) must land on 0.30, not snap back to 0.25
 const fineKnob = new FLKnob(makeEl(), { knobId: 'bandwidthHeal', min: -6, max: 6, step: 0.25, default: 0.25, val: 0.25, unit: 'dB', readoutEl: { textContent: '' } });
 fineKnob.setValue(0.25 + 0.05, false, 0.25 * 0.2);

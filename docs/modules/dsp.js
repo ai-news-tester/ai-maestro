@@ -159,6 +159,13 @@ export class MaestroDSP {
     return curve;
   }
 
+  /** Glue compressor threshold (dB): crest-aware, shared by live and export paths. */
+  static glueThreshold(crestFactorDB, dynamicsNatural) {
+    const crest = Number.isFinite(crestFactorDB) ? crestFactorDB : 12;
+    const crestThresh = -13.2 - Math.max(0, (crest - 14) * 0.5);
+    return Math.min(crestThresh, -6 - 18 * (dynamicsNatural / 100));
+  }
+
   /**
    * Closed-loop correction (dB, reduction only) from a measured render:
    * bring LUFS to target, but never above the -1 dBTP headroom.
@@ -245,9 +252,7 @@ export class MaestroDSP {
     textureShaper.curve = MaestroDSP.makeTextureCurve(p.textureInject / 100); textureShaper.oversample = '2x';
     const shelf = makeFilter('shelf', 'highshelf', 12000, 0.7, p.bandwidthHeal);
     const glueComp = nodes.dynamicsComp || ctx.createDynamicsCompressor(); nodes.dynamicsComp = glueComp;
-    const crest = Number.isFinite(p.crestFactorDB) ? p.crestFactorDB : 12;
-    const crestThresh = -13.2 - Math.max(0, (crest - 14) * 0.5);
-    const dynThresh = Math.min(crestThresh, -6 - 18 * (p.dynamicsNatural / 100));
+    const dynThresh = MaestroDSP.glueThreshold(p.crestFactorDB, p.dynamicsNatural);
     set(glueComp.threshold, dynThresh); set(glueComp.knee, 10); set(glueComp.ratio, 1.5 + 2.5 * (p.dynamicsNatural / 100)); set(glueComp.attack, 0.025); set(glueComp.release, 0.14);
     const qualityLimiter = nodes.qualityLimiter || ctx.createDynamicsCompressor(); nodes.qualityLimiter = qualityLimiter;
     set(qualityLimiter.threshold, -0.2 - 0.45 * Math.max(1, Math.min(6, p.qualityGate))); set(qualityLimiter.knee, 0); set(qualityLimiter.ratio, 20); set(qualityLimiter.attack, 0.003); set(qualityLimiter.release, 0.05);
@@ -445,8 +450,7 @@ export class MaestroDSP {
       }
       case 'dynamicsNatural': {
         const norm = val / 100;
-        // Threshold from -6 dB down to -24 dB, ratio from 1.5:1 up to 4:1 (preserves transient punch & dynamic range)
-        const thresh = -6.0 - 18.0 * norm;
+        const thresh = MaestroDSP.glueThreshold(this.params.crestFactorDB, val);
         const ratio = 1.5 + 2.5 * norm;
         if (this.dynamicsComp) {
           this.dynamicsComp.threshold.setTargetAtTime(thresh, now, ramp);
