@@ -178,7 +178,37 @@ export class MaestroDSP {
     return gain;
   }
 
-  /** Apply a reduction-only gain + hard -1 dB clamp in place to a rendered buffer. */
+  /**
+   * Loudness-matched A/B monitor gains (linear). The dry path is lifted by the
+   * LUFS difference so switching to BYPASS changes timbre, not level; both paths
+   * then drop by whatever headroom the louder of the two needs under -1 dBTP.
+   * Reduction only — a monitor never boosts above unity. Unmeasured input => 1.
+   * trimDb is the chain's calibrated autoTrimDb: the live wet path runs through
+   * it, so the master's measured values must be shifted by it before matching.
+   * @returns {{dry: number, wet: number}}
+   */
+  static auditionGains(original = {}, master = {}, trimDb = 0) {
+    const unity = { dry: 1, wet: 1 };
+    const oLUFS = original.integratedLUFS, mLUFS = master.integratedLUFS;
+    const oTP = original.truePeakDBTP, mTP = master.truePeakDBTP;
+    if (!Number.isFinite(oLUFS) || !Number.isFinite(mLUFS) || !Number.isFinite(oTP) || !Number.isFinite(mTP)) return unity;
+    const trim = Number.isFinite(trimDb) ? Math.min(0, trimDb) : 0;
+    const matchDb = (mLUFS + trim) - oLUFS;
+    const peakDb = Math.max(mTP + trim, oTP + matchDb);
+    // Headroom is shared by both paths: clamping either one on its own would
+    // reintroduce the level difference the match exists to remove.
+    const monitorDb = Math.min(0, -1 - peakDb, -matchDb);
+    return {
+      dry: Math.pow(10, (matchDb + monitorDb) / 20),
+      wet: Math.pow(10, monitorDb / 20),
+    };
+  }
+
+  /**
+   * Apply a reduction-only gain + hard -1 dB clamp in place to a rendered buffer,
+   * then re-measure: clamping flattens wave tops and creates inter-sample overs
+   * the sample peak cannot see, so a constant trim restores the true-peak ceiling.
+   */
   static applyCorrectionDb(buffer, db) {
     if (!db || db >= 0) return buffer;
     const linear = Math.pow(10, db / 20);
@@ -188,6 +218,19 @@ export class MaestroDSP {
       for (let i = 0; i < data.length; i++) {
         const v = data[i] * linear;
         data[i] = v > ceil ? ceil : v < -ceil ? -ceil : v;
+      }
+    }
+    let tp = -Infinity;
+    for (let c = 0; c < buffer.numberOfChannels; c++) {
+      tp = Math.max(tp, SpectralAnalyzer.measureTruePeak(buffer.getChannelData(c), buffer.sampleRate));
+    }
+    if (Number.isFinite(tp) && tp > -1) {
+      // 0.05 dB margin: Float32 quantization can leave the re-measured peak a
+      // hair above a bare -1 target, which is still an over on a real DAC.
+      const trim = Math.pow(10, (-1.05 - tp) / 20);
+      for (let c = 0; c < buffer.numberOfChannels; c++) {
+        const data = buffer.getChannelData(c);
+        for (let i = 0; i < data.length; i++) data[i] *= trim;
       }
     }
     return buffer;
@@ -485,22 +528,35 @@ export class MaestroDSP {
   }
 
   /**
+   * Set the loudness-matched A/B monitor gains, or null for a plain unity A/B.
+   * Applies immediately if a path is already open, so AUTO can retune the
+   * monitor mid-playback without waiting for the next toggle.
+   * @param {{dry: number, wet: number}|null} gains
+   */
+  setAudition(gains) {
+    const valid = gains && Number.isFinite(gains.dry) && Number.isFinite(gains.wet)
+      && gains.dry > 0 && gains.wet > 0 && gains.dry <= 1 && gains.wet <= 1;
+    this.audition = valid ? { dry: gains.dry, wet: gains.wet } : null;
+    this.applyBypassGains();
+  }
+
+  /** Route the wet/dry crossfade through the audition gains when one is set. */
+  applyBypassGains() {
+    if (!this.ctx || !this.wetGain || !this.dryGain) return;
+    const now = this.ctx.currentTime;
+    const rampTime = 0.03;
+    const a = this.audition || { dry: 1, wet: 1 };
+    this.wetGain.gain.setTargetAtTime(this.isBypassed ? 0 : a.wet, now, rampTime);
+    this.dryGain.gain.setTargetAtTime(this.isBypassed ? a.dry : 0, now, rampTime);
+  }
+
+  /**
    * Toggle A/B Bypass cleanly with 30ms ramp.
    * @param {boolean} bypass
    */
   setBypass(bypass) {
     this.isBypassed = !!bypass;
-    if (!this.ctx) return;
-    const now = this.ctx.currentTime;
-    const rampTime = 0.03;
-
-    if (this.isBypassed) {
-      this.wetGain.gain.setTargetAtTime(0.0, now, rampTime);
-      this.dryGain.gain.setTargetAtTime(1.0, now, rampTime);
-    } else {
-      this.wetGain.gain.setTargetAtTime(1.0, now, rampTime);
-      this.dryGain.gain.setTargetAtTime(0.0, now, rampTime);
-    }
+    this.applyBypassGains();
   }
 
   /**

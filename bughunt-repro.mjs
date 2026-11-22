@@ -157,4 +157,112 @@ renderer.draw();
 assert.equal(gcsCalls, 2, 'theme change must re-read once, got ' + gcsCalls);
 globalThis.getComputedStyle = realGCS;
 
+// --- 13. Loudness-matched A/B ---
+const { MaestroDSP } = await import('./docs/modules/dsp.js');
+const { SpectralAnalyzer } = await import('./docs/modules/analyzer.js');
+assert.equal(typeof MaestroDSP.auditionGains, 'function', 'dsp must expose auditionGains');
+const dbToLin = (db) => Math.pow(10, db / 20);
+// A master 6 LU louder than the original must not win the A/B by being louder.
+const g13 = MaestroDSP.auditionGains(
+  { integratedLUFS: -20, truePeakDBTP: -6 },
+  { integratedLUFS: -14, truePeakDBTP: -1 });
+assert.ok(Number.isFinite(g13.dry) && Number.isFinite(g13.wet), 'audition gains must be finite');
+const dryLUFS = -20 + 20 * Math.log10(g13.dry);
+const wetLUFS = -14 + 20 * Math.log10(g13.wet);
+assert.ok(Math.abs(dryLUFS - wetLUFS) < 0.001, 'A and B must be loudness-matched, got ' + dryLUFS + ' vs ' + wetLUFS);
+assert.ok(-1 + 20 * Math.log10(g13.wet) <= -0.999, 'monitor must keep the master under -1 dBTP');
+assert.ok(-6 + 20 * Math.log10(g13.dry) <= -0.999, 'monitor must keep the lifted original under -1 dBTP');
+// Quiet master: the original is pulled down, never pushed above unity.
+const g13b = MaestroDSP.auditionGains(
+  { integratedLUFS: -14, truePeakDBTP: -1 },
+  { integratedLUFS: -20, truePeakDBTP: -7 });
+assert.ok(g13b.dry <= 1.0000001 && g13b.wet <= 1.0000001, 'audition must never boost above unity');
+assert.ok(Math.abs((-14 + 20 * Math.log10(g13b.dry)) - (-20 + 20 * Math.log10(g13b.wet))) < 0.001, 'quiet master still matched');
+// Missing measurements: unity, no crash, no NaN.
+const g13c = MaestroDSP.auditionGains({ integratedLUFS: -Infinity, truePeakDBTP: -Infinity }, { integratedLUFS: -14, truePeakDBTP: -1 });
+assert.equal(g13c.dry, 1, 'unmeasured original falls back to unity dry');
+assert.equal(g13c.wet, 1, 'unmeasured original falls back to unity wet');
+
+// --- 13b. Live A/B playback uses the audition gains ---
+const mkParam = () => { const o = { v: 0 }; o.setValueAtTime = (v) => { o.v = v; }; o.setTargetAtTime = (v) => { o.v = v; }; return o; };
+const fakeCtx13 = { currentTime: 0, createGain: () => ({ gain: mkParam(), connect() {}, disconnect() {} }) };
+const dsp13 = new MaestroDSP();
+dsp13.ctx = fakeCtx13;
+dsp13.wetGain = fakeCtx13.createGain();
+dsp13.dryGain = fakeCtx13.createGain();
+dsp13.setAudition(g13);
+dsp13.setBypass(false);
+assert.ok(Math.abs(dsp13.wetGain.gain.v - g13.wet) < 1e-9, 'engaged playback must use the audition wet gain, got ' + dsp13.wetGain.gain.v);
+dsp13.setBypass(true);
+assert.ok(Math.abs(dsp13.dryGain.gain.v - g13.dry) < 1e-9, 'bypass must use the audition dry gain, got ' + dsp13.dryGain.gain.v);
+// An audition set mid-playback must take effect immediately, not at the next toggle.
+dsp13.setBypass(false);
+dsp13.setAudition({ dry: 0.5, wet: 0.25 });
+assert.equal(dsp13.wetGain.gain.v, 0.25, 'setAudition must re-apply while engaged');
+// Without an audition the A/B stays exactly as it was: unity.
+const dsp13b = new MaestroDSP();
+dsp13b.ctx = fakeCtx13;
+dsp13b.wetGain = fakeCtx13.createGain();
+dsp13b.dryGain = fakeCtx13.createGain();
+dsp13b.setBypass(false);
+assert.equal(dsp13b.wetGain.gain.v, 1, 'without an audition the wet path stays unity');
+dsp13b.setBypass(true);
+assert.equal(dsp13b.dryGain.gain.v, 1, 'without an audition the dry path stays unity');
+// Junk input must not poison the gains.
+dsp13b.setAudition({ dry: NaN, wet: 2 });
+dsp13b.setBypass(false);
+assert.equal(dsp13b.wetGain.gain.v, 1, 'non-finite audition falls back to unity');
+// app.js must feed the monitor from the AUTO measurement and clear it per track.
+const appSrc13 = readFileSync(new URL('./docs/app.js', import.meta.url), 'utf8');
+assert.ok(appSrc13.includes('auditionGains'), 'app.js must compute audition gains');
+assert.ok(appSrc13.includes('setAudition'), 'app.js must feed them to the live chain');
+assert.ok(/setAudition\(null\)/.test(appSrc13), 'AUTO state must be cleared for a new track or preset');
+// Every place that re-pushes persisted AUTO chain params must also restore the
+// audition, or a reload silently reverts BYPASS to an unmatched unity A/B.
+const restoreBlocks13 = appSrc13.split('autoTrimDb: autoParams.autoTrimDb || 0,').slice(1);
+assert.equal(restoreBlocks13.length, 2, 'expected two AUTO restore sites, got ' + restoreBlocks13.length);
+for (const [i, block] of restoreBlocks13.entries()) {
+  assert.ok(block.slice(0, 400).includes('setAudition'), 'AUTO restore site ' + (i + 1) + ' must restore the audition gains');
+}
+
+// --- 14. Export re-verifies true peak after the clamp ---
+const SR14 = 44100;
+const mkBuf = (chans, sr) => ({
+  numberOfChannels: chans.length, length: chans[0].length, sampleRate: sr,
+  getChannelData: (c) => chans[c],
+});
+// Clamping a hot signal creates inter-sample overs the sample peak cannot see.
+const hot = new Float32Array(SR14);
+for (let i = 0; i < hot.length; i++) hot[i] = 1.6 * Math.sin((2 * Math.PI * 11025 * i) / SR14 + Math.PI / 4);
+const hotBuf = mkBuf([hot, Float32Array.from(hot)], SR14);
+MaestroDSP.applyCorrectionDb(hotBuf, -3);
+const tpAfter = SpectralAnalyzer.measureTruePeak(hotBuf.getChannelData(0), SR14);
+assert.ok(tpAfter <= -1.0, 'applyCorrectionDb must leave true peak at or under -1 dBTP, got ' + tpAfter);
+assert.ok(Math.abs(hotBuf.getChannelData(0)[100]) <= dbToLin(-1) + 1e-6, 'sample peak still respects the ceiling');
+// A signal already under the ceiling is left alone.
+const calm = new Float32Array(2048);
+for (let i = 0; i < calm.length; i++) calm[i] = 0.1 * Math.sin((2 * Math.PI * 1000 * i) / SR14);
+const calmCopy = Float32Array.from(calm);
+MaestroDSP.applyCorrectionDb(mkBuf([calm], SR14), -6);
+assert.ok(Math.abs(calm[100] - calmCopy[100] * dbToLin(-6)) < 1e-6, 'quiet signal is scaled, not reshaped');
+
+// --- 15. Audition must account for the chain's own calibrated trim ---
+// The live wet path runs through trimGain (autoTrimDb), so matching against the
+// pre-trim render leaves the A/B mismatched by exactly the trim.
+const g15 = MaestroDSP.auditionGains(
+  { integratedLUFS: -20, truePeakDBTP: -6 },
+  { integratedLUFS: -12, truePeakDBTP: 0 },
+  -2);
+const g15ref = MaestroDSP.auditionGains(
+  { integratedLUFS: -20, truePeakDBTP: -6 },
+  { integratedLUFS: -14, truePeakDBTP: -2 });
+assert.ok(Math.abs(g15.dry - g15ref.dry) < 1e-12 && Math.abs(g15.wet - g15ref.wet) < 1e-12,
+  'trim must shift the master before matching');
+const g15b = MaestroDSP.auditionGains({ integratedLUFS: -20, truePeakDBTP: -6 }, { integratedLUFS: -14, truePeakDBTP: -1 });
+const g15c = MaestroDSP.auditionGains({ integratedLUFS: -20, truePeakDBTP: -6 }, { integratedLUFS: -14, truePeakDBTP: -1 }, 0);
+assert.deepEqual(g15b, g15c, 'zero trim must not change the match');
+// Junk trim must not poison the match.
+assert.deepEqual(MaestroDSP.auditionGains({ integratedLUFS: -20, truePeakDBTP: -6 }, { integratedLUFS: -14, truePeakDBTP: -1 }, NaN), g15b, 'NaN trim is ignored');
+assert.ok(/auditionGains\([^)]*autoTrimDb/s.test(appSrc13), 'app.js must feed the calibrated trim to auditionGains');
+
 console.log('bughunt-repro: PASS');

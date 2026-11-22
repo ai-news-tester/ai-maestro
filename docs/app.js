@@ -66,6 +66,7 @@ function clearAutoParams() {
       autoTrimDb: 0, integratedLUFS: null, targetLUFS: null, sibilance: 0,
       hfCutoff: 0, correlation: 1, msBass: 0, crestFactorDB: 12, limiterEngaged: false,
     });
+    dsp.setAudition(null);
   }
   if (spectrum) spectrum.setAutoIssues([]);
   renderAutoIssues([]);
@@ -102,6 +103,9 @@ function ensureAudioContext() {
         targetLUFS: autoParams.targetLUFS,
         autoTrimDb: autoParams.autoTrimDb || 0,
       });
+      // The persisted audition must survive a reload, or BYPASS reverts to a
+      // unity A/B that the louder master silently wins.
+      dsp.setAudition(autoParams.audition || null);
     }
     // Restore ran before dsp existed, so apply the saved bypass now or the
     // user would hear processed audio under a BYPASS (RAW) label.
@@ -608,6 +612,7 @@ function applyAutoReport(report, auto) {
       limiterEngaged: auto.params.limiterEngaged,
       autoTrimDb: auto.params.autoTrimDb || 0,
     });
+    dsp.setAudition(auto.params.audition || null);
   }
 
   for (const [id, val] of Object.entries(auto.params)) {
@@ -668,6 +673,9 @@ async function runAutoMaster() {
     if (token !== autoRunToken) return;
     const measured = MaestroDSP.measureRender(rendered);
     auto.params.autoTrimDb = MaestroDSP.correctionGainDb(measured.integratedLUFS, measured.truePeakDBTP, auto.params.targetLUFS);
+    // Loudness-matched A/B: compare timbre, not level. Measured from the same
+    // render the trim comes from, so the monitor matches what export produces.
+    auto.params.audition = MaestroDSP.auditionGains(report, measured, auto.params.autoTrimDb);
 
     setAutoProgress('Master: applying chain...');
     applyAutoReport(report, auto);
@@ -1006,16 +1014,19 @@ document.addEventListener('DOMContentLoaded', async () => {
       applyCompositeKnobDSP();
       if (savedSettings.autoParams) {
         autoParams = savedSettings.autoParams;
-        if (dsp) Object.assign(dsp.params, {
-          sibilance: autoParams.sibilance,
-          hfCutoff: autoParams.hfCutoff,
-          correlation: autoParams.correlation,
-          msBass: autoParams.msBass,
-          crestFactorDB: autoParams.crestFactorDB,
-          integratedLUFS: autoParams.integratedLUFS,
-          targetLUFS: autoParams.targetLUFS,
-          autoTrimDb: autoParams.autoTrimDb || 0,
-        });
+        if (dsp) {
+          Object.assign(dsp.params, {
+            sibilance: autoParams.sibilance,
+            hfCutoff: autoParams.hfCutoff,
+            correlation: autoParams.correlation,
+            msBass: autoParams.msBass,
+            crestFactorDB: autoParams.crestFactorDB,
+            integratedLUFS: autoParams.integratedLUFS,
+            targetLUFS: autoParams.targetLUFS,
+            autoTrimDb: autoParams.autoTrimDb || 0,
+          });
+          dsp.setAudition(autoParams.audition || null);
+        }
       }
       if (savedSettings.isBypassed) {
         // dsp may not exist yet (created on first user gesture); remember the
