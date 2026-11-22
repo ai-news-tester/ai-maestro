@@ -148,8 +148,8 @@ export class SpectrumRenderer {
     this.draw();
   }
 
-  drawAutoIssues(ctx, width, height) {
-    if (!this.autoIssues || !this.autoIssues.length) return;
+  drawAutoIssues(ctx, width, height, colors) {
+    if (!this.autoIssues || !this.autoIssues.length || !colors) return;
     ctx.save();
     ctx.font = '700 8.5px ui-monospace, Menlo, Consolas, monospace';
     ctx.textAlign = 'left';
@@ -157,18 +157,20 @@ export class SpectrumRenderer {
     for (const issue of this.autoIssues) {
       if (!Number.isFinite(issue.freqLo) || !Number.isFinite(issue.freqHi)) continue;
       const sev = clamp01(issue.severity);
-      const base = sev >= 0.66 ? '255, 60, 60' : sev >= 0.33 ? '255, 122, 0' : '255, 200, 0';
+      // Severity colours from the theme tokens (readable on both palettes);
+      // the old hardcoded yellow/orange/red hit 1.55:1 contrast on the day surface.
+      const base = sev >= 0.66 ? colors.brick : sev >= 0.33 ? colors.ochre : colors.slate;
       const xLo = this.freqToX(Math.max(this.minFreq, issue.freqLo), width);
       const xHi = this.freqToX(Math.min(this.maxFreq, issue.freqHi), width);
-      ctx.fillStyle = 'rgba(' + base + ', ' + (0.1 + 0.15 * sev).toFixed(3) + ')';
+      ctx.fillStyle = colors.rgb(base, 0.1 + 0.15 * sev);
       ctx.fillRect(xLo, 0, Math.max(2, xHi - xLo), height);
-      ctx.strokeStyle = 'rgba(' + base + ', 0.7)';
+      ctx.strokeStyle = colors.rgb(base, 0.7);
       ctx.lineWidth = 1;
       ctx.strokeRect(xLo, 0, Math.max(2, xHi - xLo), height);
       const over = Number.isFinite(issue.measured) && Number.isFinite(issue.target) && (issue.unit === 'dB' || issue.unit === 'dBTP') ? ' +' + (issue.measured - issue.target).toFixed(1) + ' dB' : ' ' + issue.measured + (issue.unit ? ' ' + issue.unit : '');
       const label = issue.name + over;
       const labelW = ctx.measureText(label).width;
-      ctx.fillStyle = 'rgba(' + base + ', 1)';
+      ctx.fillStyle = colors.rgb(base, 1);
       ctx.fillText(label, Math.max(3, Math.min(xLo + 3, width - labelW - 3)), Math.min(40 + row * 11, height - 8));
       row++;
     }
@@ -218,6 +220,7 @@ export class SpectrumRenderer {
     };
     const slate = token('--slate', '#2f4858');
     const ochre = token('--ochre', '#8a5a2b');
+    const brick = token('--brick', '#a33a2a');
 
     // 1. Clear background
     ctx.fillStyle = token('--surface', '#ffffff');
@@ -409,6 +412,6 @@ export class SpectrumRenderer {
     }
 
     // Persistent AUTO issue bands (visible even when not playing)
-    this.drawAutoIssues(ctx, width, height);
+    this.drawAutoIssues(ctx, width, height, { rgb, slate, ochre, brick });
   }
 }

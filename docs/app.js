@@ -814,6 +814,10 @@ function setupThemeToggle() {
 // ============================================================================
 document.addEventListener('DOMContentLoaded', async () => {
   try {
+    // 0. Theme toggle first: the registry fetch can take seconds on a cold
+    // boot, and the button must respond immediately, not after it.
+    setupThemeToggle();
+
     // 1. Load registry JSON
     registry = await RegistryDOM.load('knob-registry.json');
 
@@ -984,7 +988,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     // 7. WAV Export setup
     setupExportWAV();
     setupAutoControls();
-    setupThemeToggle();
 
     // 8. Playback Seeker / Scrubber setup
     setupSeekerControls();

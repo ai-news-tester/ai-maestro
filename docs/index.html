@@ -51,7 +51,11 @@
   <!-- Apply the saved theme before first paint so night mode never flashes white. -->
   <script>
     try {
-      if (localStorage.getItem('maestro_theme') === 'day') document.documentElement.dataset.theme = 'day';
+      if (localStorage.getItem('maestro_theme') === 'day') {
+        document.documentElement.dataset.theme = 'day';
+        const meta = document.querySelector('meta[name="theme-color"]');
+        if (meta) meta.setAttribute('content', '#f7f6f3');
+      }
     } catch (e) {}
   </script>
 </head>
