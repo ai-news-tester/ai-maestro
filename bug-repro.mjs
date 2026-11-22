@@ -137,4 +137,25 @@ console.log('renderChain length:', capturedLength, 'input:', SR_TAIL, 'extra:', 
 assert.ok(capturedLength > SR_TAIL, 'renderChain must render a tail so the room/limiter decay is not cut off');
 assert.ok(capturedLength - SR_TAIL >= Math.round(0.1 * SR_TAIL), 'tail must cover at least 100 ms of chain decay');
 
+// 3e. Room Inject must be TWO parallel taps at 16/31 ms (README, registry
+// purpose, dsp header), not the cascaded single 47 ms slap it was wired as.
+{
+  const edges = [];
+  const mkRec = () => {
+    const n = { type: '', frequency: p(), Q: p(), gain: p(), delayTime: p(), threshold: p(), knee: p(), ratio: p(), attack: p(), release: p(), curve: null, oversample: '', fftSize: 2048, smoothingTimeConstant: 0.8 };
+    n.connect = (dst) => { edges.push([n, dst]); };
+    n.disconnect = () => {};
+    n.start = () => {};
+    return n;
+  };
+  const recCtx = { currentTime: 0, createBiquadFilter: mkRec, createGain: mkRec, createWaveShaper: mkRec, createDelay: mkRec, createOscillator: mkRec, createDynamicsCompressor: mkRec, createAnalyser: mkRec };
+  const chain = MaestroDSP.buildMasterChain(recCtx, {}, {});
+  const linked = (a, b) => edges.some(([s, d]) => s === a && d === b);
+  const { roomSend, roomDelay1, roomDelay2, roomFilter } = chain.nodes;
+  console.log('room wiring: send->d1', linked(roomSend, roomDelay1), 'send->d2', linked(roomSend, roomDelay2), 'd1->d2', linked(roomDelay1, roomDelay2));
+  assert.ok(linked(roomSend, roomDelay1) && linked(roomSend, roomDelay2), 'room taps must be parallel: send feeds both the 16 ms and the 31 ms delay');
+  assert.ok(linked(roomDelay1, roomFilter) && linked(roomDelay2, roomFilter), 'both room taps must reach the lowpass');
+  assert.ok(!linked(roomDelay1, roomDelay2), 'cascading the taps into one 47 ms path is the bug being pinned away');
+}
+
 console.log('Storage fallback: PASS');

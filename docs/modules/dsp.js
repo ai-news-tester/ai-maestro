@@ -272,7 +272,7 @@ export class MaestroDSP {
     const outGain = nodes.outGain || ctx.createGain(); nodes.outGain = outGain; set(outGain.gain, Number.isFinite(p.integratedLUFS) ? 1 : Math.pow(10, (p.outputGain || 0) / 20));
     const chain = [stride1, stride2, stegoComb, notch1, notch2, notch3, neuralFilter, deshimmerShelf, deesser, airShelfNode, blendFilter1, blendFilter2, allpass1, allpass2, allpass3, statShaper, hashDelay];
     for (let i = 0; i < chain.length - 1; i++) chain[i].connect(chain[i + 1]);
-    hashDelay.connect(roomMixBus); hashDelay.connect(roomSend); roomSend.connect(roomDelay1); roomDelay1.connect(roomDelay2); roomDelay2.connect(roomFilter); roomFilter.connect(roomReturn); roomReturn.connect(roomMixBus);
+    hashDelay.connect(roomMixBus); hashDelay.connect(roomSend); roomSend.connect(roomDelay1); roomSend.connect(roomDelay2); roomDelay1.connect(roomFilter); roomDelay2.connect(roomFilter); roomFilter.connect(roomReturn); roomReturn.connect(roomMixBus);
     roomMixBus.connect(textureShaper); textureShaper.connect(shelf); shelf.connect(monoLows); monoLows.connect(glueComp); glueComp.connect(loudnessGain); loudnessGain.connect(qualityLimiter); qualityLimiter.connect(tpLimiter); tpLimiter.connect(ceiling); ceiling.connect(trimGain); trimGain.connect(outGain);
     return { input: stride1, output: outGain, nodes };
   }

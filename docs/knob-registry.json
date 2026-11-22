@@ -176,7 +176,7 @@
         "title": "Room Inject",
         "purpose": "Two delay taps at 16 ms and 31 ms, mixed back in",
         "description": "Two short delay taps stand in for early room reflections and are mixed back under the dry signal.",
-        "howItWorks": "A send feeds two delays at 16 ms and 31 ms in series, through a 4200 Hz lowpass, then back through a return gain that scales from 0 up to 0.25.",
+        "howItWorks": "A send feeds two parallel delays at 16 ms and 31 ms, both through a 4200 Hz lowpass, then back through a return gain that scales from 0 up to 0.25.",
         "tradeoff": "Adds a sense of space. High wet mixes thicken the sound and can blur fast transients."
       }
     },
