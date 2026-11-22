@@ -2,7 +2,7 @@
 globalThis.window = { addEventListener() {} };
 globalThis.document = { getElementById: () => null };
 import assert from 'node:assert/strict';
-import { SpectralAnalyzer, StegoDetector } from './docs/modules/analyzer.js';
+import { SpectralAnalyzer, StegoDetector, AudioMath } from './docs/modules/analyzer.js';
 
 // ---- Task 1: K-weighted LUFS + 4x true peak ----
 // Reference: EBU R128 calibration — 1 kHz stereo sine reads its dBFS value in LUFS.
@@ -187,6 +187,29 @@ assert.equal(clickReport.silenceRanges.length, 0, 'full-scale click must not be 
   assert.ok(harshReport.harshPeaks[0].prominenceDB > 6, `harsh prominence ${harshReport.harshPeaks[0].prominenceDB} must exceed the 6 dB rule threshold`);
   const harshMapped = mapAutoReport(harshReport, -14);
   assert.ok(harshMapped.params.spectralBlend > 40, `harsh track must raise spectralBlend above base 40, got ${harshMapped.params.spectralBlend}`);
+}
+
+// Streaming STFT: stft must not retain every magnitude frame (a 10-min track
+// retained ~800 MB of Float64 frames and could kill a browser tab). Detector
+// parity is pinned by the tests above; this pins the memory behaviour.
+{
+  // A single FFT window must yield exactly one frame.
+  const single = AudioMath.stft(new Float32Array(4096).fill(0.1), 4096, 1024);
+  assert.ok(!Array.isArray(single.magnitudes), 'stft must return a streaming API, not a retained frame array');
+  let count = 0;
+  single.forEachFrame(() => count++);
+  assert.equal(count, 1, `single-window signal must yield exactly 1 frame, got ${count}`);
+  assert.equal(single.numFrames, 1, 'numFrames must report the frame count');
+
+  // A long signal must not keep frames REACHABLE after the pass. Typed-array
+  // backing stores live outside the JS heap, so measure `external`. The old
+  // retaining implementation kept ~42 MB alive on a 60 s signal; streamed frames
+  // leave only uncollected garbage (observed ~5 MB), so 25 MB separates the two.
+  const before = process.memoryUsage().external;
+  AudioMath.stft(new Float32Array(SR * 60).fill(0.1), 4096, 1024).forEachFrame(() => {});
+  const growth = process.memoryUsage().external - before;
+  console.log('stft retained after 60s pass:', (growth / 1048576).toFixed(1), 'MB');
+  assert.ok(growth < 25 * 1048576, `stft retained ${(growth / 1048576).toFixed(1)} MB of frames — must stream, not retain`);
 }
 
 console.log('Task 2: PASS');

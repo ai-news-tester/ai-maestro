@@ -85,22 +85,26 @@ export class AudioMath {
   }
 
   /**
-   * Full STFT returning an array of magnitude frames.
+   * Streaming STFT: frames are handed to a callback one at a time and dropped.
+   * Retaining every Float64 frame cost ~800 MB on a 10-minute track (the backing
+   * stores live outside the JS heap), enough to kill a browser tab.
    * @param {Float32Array} samples – mono PCM
    * @param {number} nfft – FFT size (must be power of 2)
    * @param {number} hop – hop length
-   * @returns {{ magnitudes: Float64Array[] }}
+   * @returns {{ numFrames: number, forEachFrame: (cb: (mag: Float64Array, f: number) => void) => void }}
    */
   static stft(samples, nfft = 4096, hop = 1024) {
     const win = this.hannWindow(nfft);
-    const numFrames = Math.floor((samples.length - nfft) / hop) + 1;
-    const magnitudes = [];
-    for (let f = 0; f < numFrames; f++) {
-      const offset = f * hop;
-      const segment = samples.slice(offset, offset + nfft);
-      magnitudes.push(this.magnitudeSpectrum(segment, win));
-    }
-    return { magnitudes };
+    const numFrames = Math.max(0, Math.floor((samples.length - nfft) / hop) + 1);
+    return {
+      numFrames,
+      forEachFrame: (cb) => {
+        for (let f = 0; f < numFrames; f++) {
+          const offset = f * hop;
+          cb(this.magnitudeSpectrum(samples.slice(offset, offset + nfft), win), f);
+        }
+      },
+    };
   }
 
   /**
@@ -185,20 +189,29 @@ export class CarrierDetector {
     const nfft = 4096;
     const hop = nfft >> 2;
     const binHz = sr / nfft;
-    const { magnitudes } = AudioMath.stft(samples, nfft, hop);
-    if (magnitudes.length === 0) {
+    const stft = AudioMath.stft(samples, nfft, hop);
+    if (stft.numFrames === 0) {
       return { carriers: [], overallConfidence: 0, peakDBFS: -Infinity, rmsDBFS: -Infinity };
     }
 
-    // Average magnitude across all frames
-    const halfN = magnitudes[0].length;
+    // Average magnitude across all frames, streamed: only per-bin accumulators
+    // are kept, never the frames. Per-bin mean/variance use Welford so the
+    // stability index needs no second pass over the audio.
+    const halfN = (nfft >> 1) + 1;
     const avgMag = new Float64Array(halfN);
-    for (let f = 0; f < magnitudes.length; f++) {
+    const wMean = new Float64Array(halfN);
+    const wM2 = new Float64Array(halfN);
+    stft.forEachFrame((mag, f) => {
+      const n = f + 1;
       for (let k = 0; k < halfN; k++) {
-        avgMag[k] += magnitudes[f][k];
+        const v = mag[k];
+        avgMag[k] += v;
+        const delta = v - wMean[k];
+        wMean[k] += delta / n;
+        wM2[k] += delta * (v - wMean[k]);
       }
-    }
-    for (let k = 0; k < halfN; k++) avgMag[k] /= magnitudes.length;
+    });
+    for (let k = 0; k < halfN; k++) avgMag[k] /= stft.numFrames;
 
     // Compute spectral floor via moving median (±50 bins)
     const floor = AudioMath.movingMedian(avgMag, 50);
@@ -223,14 +236,9 @@ export class CarrierDetector {
       const floorVal = floor[peakK] || 1e-20;
       const prominenceDB = 20 * Math.log10(peakMag / floorVal + 1e-20);
 
-      const frameEnergies = [];
-      for (let f = 0; f < magnitudes.length; f++) {
-        frameEnergies.push(magnitudes[f][peakK]);
-      }
-      const mean = frameEnergies.reduce((a, b) => a + b, 0) / frameEnergies.length;
-      const std = Math.sqrt(
-        frameEnergies.reduce((a, b) => a + (b - mean) ** 2, 0) / frameEnergies.length
-      );
+      // Population std (divide by N), matching the original two-pass formula.
+      const mean = wMean[peakK];
+      const std = Math.sqrt(wM2[peakK] / stft.numFrames);
       const stabilityIndex = mean > 0 ? std / mean : 1;
 
       let confidence = 0;
@@ -431,13 +439,13 @@ export class SpectralAnalyzer {
   static analyze(samples, sr) {
     const nfft = 2048;
     const hop = nfft >> 1;
-    const { magnitudes } = AudioMath.stft(samples, nfft, hop);
+    const stft = AudioMath.stft(samples, nfft, hop);
 
     let sfmSum = 0;
-    for (const frame of magnitudes) {
+    stft.forEachFrame((frame) => {
       sfmSum += AudioMath.spectralFlatness(frame);
-    }
-    const avgSFM = magnitudes.length > 0 ? sfmSum / magnitudes.length : 0;
+    });
+    const avgSFM = stft.numFrames > 0 ? sfmSum / stft.numFrames : 0;
 
     const peak = AudioMath.peakDBFS(samples);
     const rms = AudioMath.rmsDBFS(samples);
@@ -605,25 +613,30 @@ export class SpectralAnalyzer {
 
   static measureShimmer(samples, sr) {
     if (!samples || samples.length < 2048) return { score: 0, confidence: 0, hfFlatness: 0, hfVariance: 0, resonanceProminence: 0 };
-    const { magnitudes } = AudioMath.stft(samples, 2048, 1024);
-    if (!magnitudes.length) return { score: 0, confidence: 0, hfFlatness: 0, hfVariance: 0, resonanceProminence: 0 };
+    const stft = AudioMath.stft(samples, 2048, 1024);
+    if (!stft.numFrames) return { score: 0, confidence: 0, hfFlatness: 0, hfVariance: 0, resonanceProminence: 0 };
     const hfLo = Math.floor(8000 / (sr / 2048));
     let flatSum = 0, hfTotal = 0, allTotal = 0;
-    const hfPerFrame = [];
-    for (const frame of magnitudes) {
+    // Streamed Welford over per-frame HF energy: no frame array retained.
+    let hfMean = 0, hfM2 = 0;
+    stft.forEachFrame((frame, f) => {
       flatSum += AudioMath.spectralFlatness(frame.slice(hfLo));
       let e = 0, ae = 0;
       for (let k = hfLo; k < frame.length; k++) e += frame[k] * frame[k];
       for (const v of frame) ae += v * v;
-      hfPerFrame.push(e); hfTotal += e; allTotal += ae;
-    }
-    const hfFlatness = flatSum / magnitudes.length;
-    const mean = hfPerFrame.reduce((a, b) => a + b, 0) / hfPerFrame.length || 0;
-    const variance = mean > 0 ? Math.sqrt(hfPerFrame.reduce((a, b) => a + (b - mean) ** 2, 0) / hfPerFrame.length) / mean : 0;
+      hfTotal += e; allTotal += ae;
+      const n = f + 1;
+      const delta = e - hfMean;
+      hfMean += delta / n;
+      hfM2 += delta * (e - hfMean);
+    });
+    const hfFlatness = flatSum / stft.numFrames;
+    const mean = hfMean || 0;
+    const variance = mean > 0 ? Math.sqrt(hfM2 / stft.numFrames) / mean : 0;
     const hfRatio = allTotal > 0 ? hfTotal / allTotal : 0;
     if (hfRatio < 0.01) return { score: 0, confidence: 0.5, hfFlatness: +hfFlatness.toFixed(4), hfVariance: +variance.toFixed(4), resonanceProminence: 0 };
     const score = Math.max(0, Math.min(1, 0.5 * hfFlatness + 0.5 * Math.min(1, variance)));
-    return { score: +score.toFixed(4), confidence: +Math.min(1, magnitudes.length / 20).toFixed(3), hfFlatness: +hfFlatness.toFixed(4), hfVariance: +variance.toFixed(4), resonanceProminence: 0 };
+    return { score: +score.toFixed(4), confidence: +Math.min(1, stft.numFrames / 20).toFixed(3), hfFlatness: +hfFlatness.toFixed(4), hfVariance: +variance.toFixed(4), resonanceProminence: 0 };
   }
 
   static analyzeFullTrack(buffer) {
