@@ -53,8 +53,10 @@ assert.equal(liveGlueThresh, chainGlueThresh, 'live glue threshold must match th
 
 // 3c. OUTPUT knob must reach the rendered output. It used to be a dangling node
 // in buildMasterChain, so export ignored it while live playback applied it.
+// The chain's output is now the ceiling (OUTPUT moved before it), so read the
+// outGain node itself — its position is pinned separately in 3c-3.
 const manualBase = { carrierErase: 0, strideRemove: 0, stegoStrip: 0, neuralScrub: 0, spectralBlend: 0, phaseScatter: 0, statNormalize: 0, hashBreak: 0, roomInject: 0, textureInject: 0, deshimmer: 0, bandwidthHeal: 0, dynamicsNatural: 0, qualityGate: 1 };
-const gainOf = (p) => MaestroDSP.buildMasterChain(ctx, p, {}).output.gain.v;
+const gainOf = (p) => MaestroDSP.buildMasterChain(ctx, p, {}).nodes.outGain.gain.v;
 const unity = gainOf({ ...manualBase, outputGain: 0 });
 const plus6 = gainOf({ ...manualBase, outputGain: 6 });
 console.log('manual output gain: unity', unity, '+6dB', plus6, 'expected ratio', Math.pow(10, 6 / 20).toFixed(4));
@@ -62,6 +64,25 @@ assert.ok(Math.abs(plus6 / unity - Math.pow(10, 6 / 20)) < 1e-6, 'export must ap
 // AUTO holds output at unity: its calibrated trim does the loudness work.
 const autoUnity = gainOf({ ...manualBase, outputGain: 6, integratedLUFS: -10, targetLUFS: -14 });
 assert.equal(autoUnity, unity, 'AUTO must hold output at unity regardless of the knob');
+
+// 3c-2. The live OUTPUT knob must be inert under AUTO too. buildMasterChain holds
+// output at unity when integratedLUFS is finite, so applying the knob live made
+// playback louder than the export it was auditioning.
+{
+  const liveDsp = new MaestroDSP();
+  liveDsp.init(ctx);
+  liveDsp.updateFromKnob('outputGain', 6);
+  const manualLive = liveDsp.outGain.gain.v;
+  assert.ok(Math.abs(manualLive - Math.pow(10, 6 / 20)) < 1e-9, 'manual OUTPUT must still reach live playback');
+  liveDsp.params.integratedLUFS = -10;
+  liveDsp.params.targetLUFS = -14;
+  liveDsp.outGain.gain.v = 1; // what buildMasterChain sets under AUTO
+  liveDsp.updateFromKnob('outputGain', 6);
+  console.log('AUTO live OUTPUT gain:', liveDsp.outGain.gain.v, 'expected 1');
+  assert.equal(liveDsp.outGain.gain.v, 1, 'under AUTO the live OUTPUT knob must not move outGain');
+  assert.equal(liveDsp.outGain.gain.v, gainOf({ ...manualBase, outputGain: 6, integratedLUFS: -10, targetLUFS: -14 }),
+    'live and export OUTPUT must agree after AUTO');
+}
 
 // 4. Shift+wheel fine tune: 0.25 + 0.05 (0.2*step) must land on 0.30, not snap back to 0.25
 const fineKnob = new FLKnob(makeEl(), { knobId: 'bandwidthHeal', min: -6, max: 6, step: 0.25, default: 0.25, val: 0.25, unit: 'dB', readoutEl: { textContent: '' } });
@@ -102,6 +123,17 @@ assert.deepEqual(PersistenceManager.loadSettings(), legacyPayload, 'legacy-only 
 
 stubStorage({ [LEGACY]: JSON.stringify(legacyPayload), [NEW]: JSON.stringify(newPayload) });
 assert.deepEqual(PersistenceManager.loadSettings(), newPayload, 'new key must win over the legacy key');
+
+// The pre-rebrand payload really was {presetKey, compositeValues, rawState,
+// isBypassed} (git 3fb9216 app.js saveSettings), not {knobs, preset, bypass} —
+// so boot reads a legacy session as-is and no shape mapping is needed.
+const realLegacyPayload = { presetKey: 'standardEvasion', compositeValues: { qualityGate: 4.2 }, rawState: {}, isBypassed: true, timestamp: 1 };
+stubStorage({ [LEGACY]: JSON.stringify(realLegacyPayload) });
+const restoredLegacy = PersistenceManager.loadSettings();
+assert.ok(restoredLegacy.compositeValues, 'a real legacy session must expose compositeValues to boot');
+assert.equal(restoredLegacy.compositeValues.qualityGate, 4.2, 'legacy knob values survive the key rename');
+assert.equal(restoredLegacy.presetKey, 'standardEvasion', 'legacy preset key is already the current name');
+assert.equal(restoredLegacy.isBypassed, true, 'legacy bypass flag is already the current name');
 
 stubStorage();
 assert.equal(PersistenceManager.loadSettings(), null, 'empty store must load null');

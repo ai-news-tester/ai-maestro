@@ -1,6 +1,7 @@
 .claude/
 .playwright-mcp/
 docs/.playwright-mcp/
+.browser-audit/
 
 .env
 
@@ -14,7 +15,8 @@ docs/.playwright-mcp/
 *.aiff
 *.au
 *.raw
-!docs/audio/**
+!docs/audio/demo_original.wav
+!docs/audio/demo_original.ogg
 
 *_output.*
 *_test.*

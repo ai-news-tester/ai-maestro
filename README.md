@@ -72,7 +72,7 @@ The report panel lists each detected issue with its frequency band, time range, 
 | PHASE & TEXTURE | Stat Normalize | 0-100 | 40 | Soft-knee waveshaper, normalized to unity peak |
 | PHASE & TEXTURE | Hash Break | 0-100 | 30 | LFO-modulated micro-delay (3 ms delay, slow sine) |
 | NATURALIZATION | Room Inject | 0-100 | 35 | Early reflections from 16 ms and 31 ms delay taps |
-| NATURALIZATION | Texture Inject | 0-100 | 35 | Asymmetric tanh saturation for harmonic texture |
+| NATURALIZATION | Texture Inject | 0-100 | 35 | Odd-symmetric tanh saturation for harmonic texture |
 | NATURALIZATION | Deshimmer | 0-100 | 0 | 10 kHz shelf plus extra scrub and blend strength; sound quality only |
 | NATURALIZATION | Bandwidth Heal | -6 to +6 dB | 0.25 | 12 kHz air shelf |
 | MASTERING | Dynamics | 0-100 | 40 | Crest-aware glue compression |
@@ -99,6 +99,7 @@ serving the repo root rather than `docs/` — add `--directory docs` as above.
 Or use the hosted studio: **https://ai-news-tester.github.io/ai-maestro/**
 
 Upload a WAV (or use the built-in demo), turn knobs or press AUTO MASTER, then export.
+Mono and stereo files only - see [Known limits](#known-limits) for why multichannel audio is rejected.
 
 ### Tests
 
@@ -111,6 +112,16 @@ node auto-repro.mjs       # meter reference tests, full-track analysis, chain or
 node deshimmer-repro.mjs  # deshimmer knob + stage behavior
 node dom-contract.mjs     # JS-DOM contract: IDs, runtime classes, flat theme
 node link-check.mjs       # relative links resolve, no banned branding
+node bughunt-repro.mjs    # knob listeners, IndexedDB transactions, registry ranges,
+                          # loudness-matched A/B, export true-peak ceiling
+node measure-repro.mjs    # DC offset, LUFS/true-peak references, clipping -> AUTO rules
+```
+
+Manual measurement tool (not part of the test gate) — prints the format and the
+full `analyzeFullTrack` report for any WAV files you pass it:
+
+```bash
+node track-report.mjs path/to/track.wav [more.wav ...]
 ```
 
 ---
@@ -157,6 +168,9 @@ ai-maestro/
 ├── deshimmer-repro.mjs      regression suite: deshimmer
 ├── dom-contract.mjs         JS-DOM contract gate
 ├── link-check.mjs           link and branding gate
+├── bughunt-repro.mjs        regression suite: listeners, transactions, A/B, export ceiling
+├── measure-repro.mjs        regression suite: DC offset, meter references, clipping rules
+├── track-report.mjs         manual tool: prints a full measurement report for a WAV
 ├── CHANGELOG.md
 ├── LICENSE                  MIT
 └── README.md
@@ -166,10 +180,17 @@ ai-maestro/
 
 ## Known limits
 
+- **Mono and stereo only - files with more than 2 channels are rejected.** A 5.1 or
+  other multichannel WAV is refused at upload with a clear message, not silently
+  downmixed. The meter reads L/R while export writes every channel the file
+  carries, and live playback downmixes to the output device, so a surround file
+  would get a gain chosen from its quiet L/R pair applied to a loud centre
+  channel. Bounce to stereo first.
 - Export is 16-bit PCM WAV only - no FLAC/MP3/OGG.
 - Loudness correction is reduction-only, so masters can sit below the -1 dBTP ceiling; the target LUFS is still met.
 - Changing the AUTO target re-runs the full calibration render.
 - Shimmer scoring is heuristic; the confidence gate keeps uncertain or clean tracks from being dulled.
+- Texture Inject is odd-symmetric: it adds odd harmonics (3rd, 5th), not even ones.
 
 ## Community
 

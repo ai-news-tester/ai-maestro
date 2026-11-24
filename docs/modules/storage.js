@@ -82,19 +82,22 @@ export class PersistenceManager {
    */
   static _runTx(mode, action) {
     return new Promise((resolve, reject) => {
+      // Per-invocation result slot: a shared this._txResult let an overlapping
+      // transaction (upload save + boot load) resolve with the other's result.
+      let result;
       this.openDB().then((db) => {
         const finish = (err, val) => {
           try { db.close(); } catch (_) {}
           if (err) reject(err); else resolve(val);
         };
         const tx = db.transaction(STORE_NAME, mode);
-        tx.oncomplete = () => finish(null, this._txResult);
+        tx.oncomplete = () => finish(null, result);
         tx.onabort = () => finish(tx.error || new Error('IndexedDB transaction aborted'));
         tx.onerror = () => finish(tx.error || new Error('IndexedDB transaction failed'));
         try {
           const req = action(tx.objectStore(STORE_NAME));
           if (req && req.onsuccess !== undefined) {
-            req.onsuccess = () => { this._txResult = req.result; };
+            req.onsuccess = () => { result = req.result; };
             req.onerror = () => finish(req.error);
           }
         } catch (err) { finish(err); }

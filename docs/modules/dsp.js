@@ -10,14 +10,14 @@
  *  7. Stat Normalize (soft-knee waveshaper, unity-peak normalized)
  *  8. Hash Break (sine LFO modulating a 3 ms delay)
  *  9. Room Inject (two delay taps at 16 / 31 ms through a lowpass)
- * 10. Texture Inject (asymmetric tanh saturation waveshaper)
+ * 10. Texture Inject (odd-symmetric tanh saturation waveshaper)
  * 11. Bandwidth Heal (12 kHz high-shelf air EQ)
  * 12. Dynamics Naturalizer (feed-forward compressor)
  * 13. Quality Gate (20:1 safety limiter)
  * 14. Master Gain Staging & A/B Dry/Wet click-free bypass
  */
 
-import { SIBILANCE_THRESHOLD } from './auto.js';
+import { BASE, SIBILANCE_THRESHOLD } from './auto.js';
 import { SpectralAnalyzer } from './analyzer.js';
 
 export class MaestroDSP {
@@ -97,24 +97,8 @@ export class MaestroDSP {
     this.rawAnalyser = null; // Pre-DSP raw audio analyser (faded ghost trace)
     this.analyser = null;    // Post-DSP processed analyser (ochre trace)
 
-    // Cache of active parameters
-    this.params = {
-      carrierErase: 50,
-      strideRemove: 35,
-      stegoStrip: 45,
-      neuralScrub: 45,
-      spectralBlend: 40,
-      phaseScatter: 40,
-      statNormalize: 40,
-      hashBreak: 30,
-      roomInject: 35,
-      textureInject: 35,
-      deshimmer: 0,
-      bandwidthHeal: 0.25,
-      dynamicsNatural: 40,
-      qualityGate: 3,
-      outputGain: 0.0,
-    };
+    // Cache of active parameters (defaults shared with the AUTO mapper)
+    this.params = { ...BASE };
   }
 
   /**
@@ -126,7 +110,9 @@ export class MaestroDSP {
     const k = Math.max(0, Math.min(1, amount));
     const normFactor = 1 + 0.25 * k;
     for (let i = 0; i < n; i++) {
-      const x = (i * 2) / n - 1;
+      // A WaveShaperNode reads index i at 2i/(n-1)-1: the /n grid put every curve
+      // half a step off its own axis, which injected DC and lost the unity peak.
+      const x = (i * 2) / (n - 1) - 1;
       // Soft saturation that squashes high statistical outliers with unity peak normalization
       curve[i] = (x / (1 + 0.25 * k * Math.abs(x))) * normFactor;
     }
@@ -135,13 +121,14 @@ export class MaestroDSP {
 
   /**
    * Generate harmonic saturation curve (analog tape/tube exciter).
+   * Odd-symmetric: tanh is odd and the squared factor is even, so the product is
+   * odd and produces odd harmonics only. No even-harmonic term.
    */
   static makeTextureCurve(amount = 0.35, n = 2048) {
     const curve = new Float32Array(n);
     const drive = 1.0 + amount * 1.5;
     for (let i = 0; i < n; i++) {
-      const x = (i * 2) / n - 1;
-      // Asymmetric polynomial creating subtle 2nd and 3rd harmonics
+      const x = (i * 2) / (n - 1) - 1;
       const driven = x * drive;
       curve[i] = Math.tanh(driven) * (1.0 - 0.05 * amount * (x * x));
     }
@@ -153,7 +140,7 @@ export class MaestroDSP {
     const curve = new Float32Array(n);
     const ceil = Math.pow(10, -1 / 20);
     for (let i = 0; i < n; i++) {
-      const x = (i * 2) / n - 1;
+      const x = (i * 2) / (n - 1) - 1;
       curve[i] = Math.max(-ceil, Math.min(ceil, x));
     }
     return curve;
@@ -262,7 +249,7 @@ export class MaestroDSP {
       nodes[key] = n;
       return n;
     };
-    const defaults = { carrierErase: 50, strideRemove: 35, stegoStrip: 45, neuralScrub: 45, spectralBlend: 40, deshimmer: 0, phaseScatter: 40, statNormalize: 40, hashBreak: 30, roomInject: 35, textureInject: 35, bandwidthHeal: 0.25, dynamicsNatural: 40, qualityGate: 3, outputGain: 0 };
+    const defaults = BASE;
     const p = { ...defaults, ...params };
     const sNorm = p.strideRemove / 100, cNorm = p.carrierErase / 100;
     const stride1 = makeFilter('stride1', 'peaking', 172.3, 6, -10 * sNorm);
@@ -324,8 +311,11 @@ export class MaestroDSP {
     const chain = [stride1, stride2, stegoComb, notch1, notch2, notch3, neuralFilter, deshimmerShelf, deesser, airShelfNode, blendFilter1, blendFilter2, allpass1, allpass2, allpass3, statShaper, hashDelay];
     for (let i = 0; i < chain.length - 1; i++) chain[i].connect(chain[i + 1]);
     hashDelay.connect(roomMixBus); hashDelay.connect(roomSend); roomSend.connect(roomDelay1); roomSend.connect(roomDelay2); roomDelay1.connect(roomFilter); roomDelay2.connect(roomFilter); roomFilter.connect(roomReturn); roomReturn.connect(roomMixBus);
-    roomMixBus.connect(textureShaper); textureShaper.connect(shelf); shelf.connect(monoLows); monoLows.connect(glueComp); glueComp.connect(loudnessGain); loudnessGain.connect(qualityLimiter); qualityLimiter.connect(tpLimiter); tpLimiter.connect(ceiling); ceiling.connect(trimGain); trimGain.connect(outGain);
-    return { input: stride1, output: outGain, nodes };
+    roomMixBus.connect(textureShaper); textureShaper.connect(shelf); shelf.connect(monoLows); monoLows.connect(glueComp); glueComp.connect(loudnessGain); loudnessGain.connect(outGain); outGain.connect(qualityLimiter); qualityLimiter.connect(tpLimiter); tpLimiter.connect(trimGain); trimGain.connect(ceiling);
+    // OUTPUT drives the limiters, and the ceiling is genuinely last. After the
+    // ceiling it reached the speakers at +5 dBFS; between limiter and ceiling a
+    // +6 dB boost hit the hard clipper instead of the 20:1 limiter.
+    return { input: stride1, output: ceiling, nodes };
   }
   // MASTER_CHAIN_END
 
@@ -518,6 +508,9 @@ export class MaestroDSP {
         break;
       }
       case 'outputGain': {
+        // AUTO holds output at unity (calibrated trim does the loudness work),
+        // so the knob must stay inert live exactly as buildMasterChain does.
+        if (Number.isFinite(this.params.integratedLUFS)) break;
         const gainLinear = Math.pow(10, val / 20); // clean output staging
         if (this.outGain) this.outGain.gain.setTargetAtTime(gainLinear, now, ramp);
         break;
@@ -608,13 +601,12 @@ export class MaestroDSP {
 
   /** Measure a rendered buffer with the same BS.1770 meter the report uses. */
   static measureRender(buffer) {
-    const left = buffer.getChannelData(0);
-    // Mono is dual-mono here, matching analyzeFullTrack (a null right reads 3 dB low).
-    return SpectralAnalyzer.measureLoudness(left, buffer.numberOfChannels > 1 ? buffer.getChannelData(1) : left, buffer.sampleRate);
+    // Mono is one channel, matching analyzeFullTrack: dual mono reads 3 dB high.
+    return SpectralAnalyzer.measureLoudness(buffer.getChannelData(0), buffer.numberOfChannels > 1 ? buffer.getChannelData(1) : null, buffer.sampleRate);
   }
 
   static async exportWAV(audioBuffer, params = {}, isBypassed = false) {
-    if (isBypassed || params.bypass) {
+    if (isBypassed) {
       // BYPASS promises pristine PCM: no trim, no reshaping.
       return this.encodeWAV(audioBuffer);
     }
@@ -685,7 +677,9 @@ export class MaestroDSP {
       for (let c = 0; c < numChannels; c++) {
         let sample = channels[c][i];
         sample = Math.max(-1, Math.min(1, sample));
-        const intSample = sample < 0 ? sample * 0x8000 : sample * 0x7FFF;
+        // One scale for both signs: positives scaled by 0x7FFF lost exactly 1 LSB
+        // against a 32768 decode, so BYPASS was not bit-identical. Clamp, do not wrap.
+        const intSample = Math.max(-32768, Math.min(32767, Math.round(sample * 32768)));
         view.setInt16(offset, intSample, true);
         offset += 2;
       }

@@ -27,8 +27,21 @@ function check(name, fn) {
 // ---- 1. Every getElementById lookup resolves to an id in index.html ----
 check('1 ID contract', () => {
   const ids = new Set();
+  // `carrier${slot}Freq` inside the 1..3 card loop reaches three real IDs each.
+  // The range mirrors that loop; without this the loop's nine IDs would drop out
+  // of the contract and a rewrite could delete a card unnoticed.
+  const LOOP_SLOTS = { slot: [1, 2, 3] };
   for (const file of LOOKUP_FILES) {
-    for (const m of read(`./${file}`).matchAll(/getElementById\('([^']+)'\)/g)) ids.add(m[1]);
+    const src = read(`./${file}`);
+    for (const m of src.matchAll(/getElementById\('([^']+)'\)/g)) ids.add(m[1]);
+    for (const m of src.matchAll(/getElementById\(`([^`]+)`\)/g)) {
+      const tpl = m[1];
+      const ph = tpl.match(/\$\{(\w+)\}/);
+      assert.ok(ph && LOOP_SLOTS[ph[1]],
+        `${file} looks up an id through \`${tpl}\`, which this gate cannot resolve. ` +
+        'Add its loop range to LOOP_SLOTS so the ids stay under contract.');
+      for (const v of LOOP_SLOTS[ph[1]]) ids.add(tpl.replace(ph[0], String(v)));
+    }
   }
   const missing = [...ids].filter((id) => !html.includes(`id="${id}"`));
   assert.equal(missing.length, 0,
