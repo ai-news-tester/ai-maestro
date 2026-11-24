@@ -82,10 +82,46 @@ check('2 no banned branding', () => {
   console.log('  ' + tracked.length + ' tracked files scanned');
 });
 
+// ---- 3. Every module a tracked JS file references is tracked ----
+// Same failure mode as check 1, other syntax: an untracked module loads fine
+// locally but 404s on Pages. The Worker behind full-track analysis shipped that
+// way — the catch silently fell back to a 5 s main-thread freeze.
+check('3 JS module references resolve', () => {
+  const patterns = [
+    /new URL\(\s*['"]([^'"]+)['"]\s*,\s*import\.meta\.url\s*\)/g,
+    /(?:^|\s)from\s*['"]([^'"]+)['"]/gm,
+    /\bimport\s*\(\s*['"]([^'"]+)['"]\s*\)/g,
+  ];
+  const missing = [];
+  let checked = 0;
+  for (const file of tracked) {
+    // The deployed surface only: Pages serves docs/, and the root test scripts
+    // quote module paths inside source-inspection assertions, which are not references.
+    if (!file.startsWith('docs/') || !['.js', '.mjs'].includes(extname(file).toLowerCase())) continue;
+    for (const pattern of patterns) {
+      for (const m of read(file).matchAll(pattern)) {
+        const target = m[1].trim();
+        // Relative specifiers only: bare and scheme'd ones are Node builtins or packages.
+        if (!target.startsWith('./') && !target.startsWith('../')) continue;
+        if (target.endsWith('/')) continue; // a directory handed to readdirSync, not a module
+        const clean = target.split('?')[0]; // ?v=N cache-bust queries are not part of the path
+        if (!clean) continue;
+        checked++;
+        const resolved = normalize(join(dirname(file), clean)).split('\\').join('/');
+        if (!existsSync(join(rootDir, resolved))) missing.push(file + ' -> ' + target + ' (missing on disk)');
+        else if (!trackedSet.has(resolved)) missing.push(file + ' -> ' + target + ' (exists but UNTRACKED — would 404 on Pages)');
+      }
+    }
+  }
+  assert.ok(checked > 0, 'no module references were checked — the scan matched nothing, so the gate is inert');
+  assert.equal(missing.length, 0, missing.length + ' module reference(s) do not resolve:' + NL + missing.join(NL));
+  console.log('  ' + checked + ' module references checked');
+});
+
 if (failures.length) {
-  console.log(NL + 'LINK CHECK FAIL (' + failures.length + ' of 2):');
+  console.log(NL + 'LINK CHECK FAIL (' + failures.length + ' of 3):');
   failures.forEach((f) => console.log('- ' + f.split(NL)[0]));
   process.exitCode = 1;
 } else {
-  console.log(NL + 'LINK CHECK PASS (2 of 2)');
+  console.log(NL + 'LINK CHECK PASS (3 of 3)');
 }

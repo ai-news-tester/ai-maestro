@@ -65,9 +65,11 @@ export function buildAutoIssues(report = {}, params = {}, reasons = {}, targetLU
     }
   }
   const lufs = r.integratedLUFS;
-  if (Number.isFinite(lufs) && Math.abs(lufs - target) >= 0.5) add({ id: 'loudness', knobId: 'outputGain', name: 'Integrated loudness', measured: lufs, target, unit: 'LUFS', severity: Math.abs(lufs - target) / 12 });
+  // knobId null: in AUTO the calibrated trim does the loudness work and OUTPUT is
+  // held at unity, so a slider here would move a knob that cannot act.
+  if (Number.isFinite(lufs) && Math.abs(lufs - target) >= 0.5) add({ id: 'loudness', knobId: null, name: 'Integrated loudness', measured: lufs, target, unit: 'LUFS', severity: Math.abs(lufs - target) / 12, sliderDefault: 1, reason: why.outputGain || '' });
   const tp = r.truePeakDBTP;
-  if (Number.isFinite(tp) && tp > -1) add({ id: 'truePeak', knobId: 'outputGain', name: 'True peak', measured: tp, target: -1, unit: 'dBTP', severity: (tp + 1) / 4 });
+  if (Number.isFinite(tp) && tp > -1) add({ id: 'truePeak', knobId: null, name: 'True peak', measured: tp, target: -1, unit: 'dBTP', severity: (tp + 1) / 4, sliderDefault: 1, reason: why.outputGain || '' });
   const clips = Number.isFinite(r.clippingCount) ? r.clippingCount : 0;
   if (clips > 0) add({ id: 'clipping', knobId: 'qualityGate', name: 'Clipping', measured: clips, target: 0, unit: 'samples', severity: clips / 200, reason: why.qualityGate || ('Clipping count ' + clips + ' samples raised qualityGate to ' + (p.qualityGate !== undefined ? p.qualityGate : 3)) });
   const echo = Number.isFinite(r.echoConfidence) ? r.echoConfidence : 0;
@@ -127,6 +129,7 @@ export class SpectrumRenderer {
     this.ctx.scale(dpr, dpr);
     this.displayWidth = rect.width;
     this.displayHeight = rect.height;
+    this.dirty = true;
   }
 
   freqToX(freq, width) {
@@ -152,7 +155,10 @@ export class SpectrumRenderer {
     this.isRunning = true;
     const render = () => {
       if (!this.isRunning) return;
-      this.draw();
+      // Idle grid is identical frame to frame: keep the cheap rAF heartbeat but
+      // only repaint while playing or after a dirty event (issues, resize, theme).
+      const themeKey = document.documentElement.dataset.theme || 'night';
+      if (this.getIsPlaying() || this.dirty || (this.cachedTheme && this.cachedTheme.key !== themeKey)) this.draw();
       this.animId = requestAnimationFrame(render);
     };
     this.animId = requestAnimationFrame(render);
@@ -160,6 +166,7 @@ export class SpectrumRenderer {
 
   setAutoIssues(issues) {
     this.autoIssues = Array.isArray(issues) ? issues : [];
+    this.dirty = true;
     this.draw();
   }
 
@@ -217,6 +224,7 @@ export class SpectrumRenderer {
   }
 
   draw() {
+    this.dirty = false; // consumed here; the render loop watches the theme key itself
     const ctx = this.ctx;
     const width = this.displayWidth;
     const height = this.displayHeight;

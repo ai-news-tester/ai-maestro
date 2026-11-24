@@ -1,6 +1,6 @@
 // AUTO mode regression tests — assert-based, same style as bug-repro.mjs
 globalThis.window = { addEventListener() {} };
-globalThis.document = { getElementById: () => null };
+globalThis.document = { getElementById: () => null, addEventListener() {} };
 import assert from 'node:assert/strict';
 import { SpectralAnalyzer, StegoDetector, AudioMath } from './docs/modules/analyzer.js';
 
@@ -59,13 +59,56 @@ assert.equal(r.duration, 4, 'duration');
 assert.equal(r.sampleRate, SR, 'sampleRate');
 assert.ok(Number.isFinite(r.integratedLUFS), 'integrated LUFS finite for non-silent track');
 
-// MONO parity: measureRender must use analyzeFullTrack's dual-mono convention,
-// otherwise AUTO's trim under-measures by 3.01 dB and exports too loud.
+// MONO accuracy AND parity. Agreement alone was not enough: both sides used the
+// same dual-mono rule, so they matched while both read 3.01 dB high and every
+// mono export landed 3 dB under target. BS.1770 measures mono as ONE channel.
 const monoBuf = fakeBuffer([sine], SR);
 const monoReport = SpectralAnalyzer.analyzeFullTrack(monoBuf).integratedLUFS;
 const monoRender = MaestroDSP.measureRender(monoBuf).integratedLUFS;
 console.log('mono parity: report', monoReport, 'render', monoRender);
 assert.ok(Math.abs(monoReport - monoRender) < 0.05, `mono report ${monoReport} vs render ${monoRender} must agree`);
+{
+  // Reference, derived not borrowed: BS.1770 sums channel energies, and at 1 kHz
+  // the K-weighting (+0.65 dB) cancels the -0.691 offset. So ONE channel reads
+  // dBFS - 3.01, and dual-mono stereo reads dBFS. The stereo sine at the top of
+  // this file pins the second case; these pin the first.
+  const refAmp = Math.pow(10, -23 / 20);
+  const refMono = new Float32Array(SR * 2);
+  for (let i = 0; i < refMono.length; i++) refMono[i] = refAmp * Math.sin((2 * Math.PI * 1000 * i) / SR);
+  const refBuf = fakeBuffer([refMono], SR);
+  const refReport = SpectralAnalyzer.analyzeFullTrack(refBuf).integratedLUFS;
+  const refRender = MaestroDSP.measureRender(refBuf).integratedLUFS;
+  console.log('mono reference: -23 dBFS sine reads', refReport, 'LUFS (render', refRender + ')');
+  assert.ok(Math.abs(refReport - (-26.02)) < 0.2, `mono -23 dBFS sine must read ~-26 LUFS, got ${refReport} (dual mono reads ~-23)`);
+  assert.ok(Math.abs(refRender - (-26.02)) < 0.2, `measureRender must read ~-26 LUFS on mono, got ${refRender}`);
+  // The 0.5 sine is -6.02 dBFS, so mono reads -9.03; dual mono read -6.02.
+  assert.ok(Math.abs(monoReport - (-9.03)) < 0.2, `mono 0.5 sine must read ~-9.0 LUFS, got ${monoReport}`);
+  // Stereo of the same signal legitimately reads 3 dB higher: the rule is per
+  // channel count, not a blanket -3 dB correction.
+  const stereoSame = SpectralAnalyzer.measureLoudness(sine, sine, SR).integratedLUFS;
+  assert.ok(Math.abs((stereoSame - monoReport) - 3.01) < 0.1,
+    `dual-mono stereo must read 3.01 dB above mono, got ${(stereoSame - monoReport).toFixed(2)}`);
+}
+
+// The chain is stereo: live playback downmixes while export writes every channel,
+// so a 5.1 file got a gain chosen from its quiet L/R applied to a loud centre.
+// app.js must refuse >2 channels at every entry point rather than measure two.
+{
+  const { requireSupportedChannels } = await import('./docs/app.js');
+  const six = fakeBuffer([sine, sine, sine, sine, sine, sine], SR);
+  assert.throws(() => requireSupportedChannels(six), /6-channel audio is not supported/,
+    'a 6-channel buffer must be refused with a clear message');
+  assert.equal(requireSupportedChannels(monoBuf), monoBuf, 'mono must pass through');
+  assert.equal(requireSupportedChannels(fakeBuffer([sine, sine], SR)).numberOfChannels, 2, 'stereo must pass through');
+  // All three entry points must call the guard: demo load, upload, restore.
+  const appSrcCh = readFs(new URL('./docs/app.js', import.meta.url), 'utf8');
+  assert.equal((appSrcCh.match(/requireSupportedChannels\(decoded\)/g) || []).length, 3,
+    'demo load, upload and IndexedDB restore must all reject unsupported channel counts');
+  // The upload guard must run BEFORE persisting, or a rejected file replaces the good one.
+  const upBody = appSrcCh.slice(appSrcCh.indexOf("uploadInput.addEventListener('change'"));
+  assert.ok(upBody.indexOf('requireSupportedChannels(decoded)') < upBody.indexOf('saveUploadedAudio'),
+    'the channel guard must precede the IndexedDB write');
+}
 
 // silence / short buffer: no NaN anywhere, shimmer 0
 const shortR = SpectralAnalyzer.analyzeFullTrack(fakeBuffer([new Float32Array(1024), new Float32Array(1024)], SR));
@@ -240,6 +283,16 @@ console.log('Task 4: PASS');
 
 // ---- Task 5: AUTO mapper ----
 import { mapAutoReport, deshimmerStrengthFromShimmer, SIBILANCE_THRESHOLD } from './docs/modules/auto.js';
+// One source of default knob values: dsp.js reuses auto.js BASE, so the
+// glue-threshold style drift between mapper base and live defaults cannot recur.
+{
+  const { BASE } = await import('./docs/modules/auto.js');
+  const freshDsp = new MaestroDSP();
+  assert.deepEqual(freshDsp.params, BASE, 'dsp default params must deep-equal auto.js BASE');
+  // The chain's own defaults must come from BASE too, not a second literal.
+  const chainDefaultsLine = chainBody.slice(chainBody.indexOf('const defaults'), chainBody.indexOf('const p = {'));
+  assert.ok(/const defaults = BASE;/.test(chainDefaultsLine), 'buildMasterChain defaults must reuse auto.js BASE');
+}
 assert.equal(deshimmerStrengthFromShimmer({ score: 0.8, confidence: 0.9 }), 80);
 assert.equal(deshimmerStrengthFromShimmer({ score: 0.8, confidence: 0.3 }), 0);
 assert.equal(deshimmerStrengthFromShimmer({ score: 0.1, confidence: 0.9 }), 0);
@@ -256,7 +309,9 @@ assert.equal(clean.params.deshimmer, 0, 'clean track deshimmer 0');
 assert.ok(clean.params.carrierErase <= 50, 'clean carrierErase <= 50');
 assert.equal(clean.presetKey, 'standardEvasion', 'clean preset');
 assert.equal(clean.params.deesser, 0, 'clean deesser off');
-assert.equal(clean.params.airShelf, 0, 'clean air off');
+// airShelf pass-through deleted (audit 15): the chain reads params.hfCutoff, so
+// pin the observable effect instead — a clean track keeps the base air shelf.
+assert.equal(clean.params.bandwidthHeal, 0.25, 'clean air shelf stays at base');
 
 const loudReport = {
   integratedLUFS: -8, truePeakDBTP: 0.5, crestFactorDB: 4, clippingCount: 150,
@@ -266,11 +321,13 @@ const loudReport = {
 };
 const loud = mapAutoReport(loudReport);
 assert.ok(loud.params.outputGain < 0, 'loud report outputGain < 0');
-assert.equal(loud.limiterEngaged, true, 'loud limiter engaged');
+// limiterEngaged deleted (audit 12): the limiter is always in circuit, so the flag
+// described nothing. Pin what a clipping track actually changes: the gate ceiling.
+assert.ok(loud.params.qualityGate > 3, 'clipping track raises qualityGate');
 assert.ok(loud.params.deshimmer > 0, 'loud shimmer deshimmer > 0');
 assert.equal(loud.params.deesser, 1, 'high sibilance deesser on');
 assert.equal(loud.params.msBass, 1, 'low correlation msBass on');
-assert.equal(loud.params.airShelf, 1, 'hf cutoff 16k air on');
+assert.ok(loud.params.bandwidthHeal >= 2, 'hf cutoff 16k lifts the air shelf');
 assert.equal(loud.presetKey, 'deepClean', 'heavy track must keep deepClean (no standardEvasion veto)');
 assert.ok(typeof loud.reasons.carrierErase === 'string' && loud.reasons.carrierErase.length > 0, 'reasons present');
 
@@ -321,7 +378,13 @@ assert.ok(carrierIssue.sliderDefault > 50, 'carrier slider default from AUTO (ra
 const lufsIssue = issues.find((i) => i.id === 'loudness');
 assert.ok(lufsIssue, 'LUFS issue present');
 assert.equal(lufsIssue.target, -14, 'LUFS target -14');
-assert.ok(lufsIssue.sliderDefault !== 0, 'LUFS slider non-zero when off target');
+// In AUTO the calibrated trim does the loudness work and OUTPUT is held at unity,
+// so these two rows must be read-only: a slider would move a knob that cannot act.
+assert.equal(lufsIssue.knobId, null, 'loudness row must not offer an OUTPUT slider');
+assert.ok(lufsIssue.sliderDefault !== 0, 'LUFS row still reports a non-zero state');
+const tpIssue = issues.find((i) => i.id === 'truePeak');
+assert.ok(tpIssue, 'true-peak issue present');
+assert.equal(tpIssue.knobId, null, 'true-peak row must not offer an OUTPUT slider');
 const clipIssue = issues.find((i) => i.id === 'clipping');
 assert.ok(clipIssue && clipIssue.sliderDefault === auto6.params.qualityGate, 'clipping slider wired to qualityGate');
 assert.ok(typeof clipIssue.reason === 'string' && clipIssue.reason.length > 0, 'clipping reason non-empty');
@@ -355,9 +418,14 @@ console.log('Task 7 fix: PASS');
 // ---- Task 7 parity: calibrated trim must be IN the shared chain ----
 // RED: no trimGain node, no renderChain helper, AUTO does not calibrate.
 assert.ok(chainBody7.includes('autoTrimDb'), 'chain reads autoTrimDb');
-assert.ok(chainBody7.includes('ceiling.connect(trimGain)'), 'trim after ceiling, inside shared chain');
-assert.ok(chainBody7.includes('trimGain.connect(outGain)'), 'output knob wired after trim, inside shared chain');
-assert.ok(chainBody7.includes('output: outGain'), 'chain output is the output knob node');
+// The ceiling must be LAST, and OUTPUT must drive the limiters rather than follow
+// them: after the ceiling it reached the speakers at +5 dBFS, and between limiter
+// and ceiling a +6 dB boost hit the hard clipper instead of the 20:1 limiter.
+assert.ok(chainBody7.includes('loudnessGain.connect(outGain)'), 'OUTPUT sits after the loudness gain');
+assert.ok(chainBody7.includes('outGain.connect(qualityLimiter)'), 'OUTPUT drives the Quality Gate limiter');
+assert.ok(chainBody7.includes('tpLimiter.connect(trimGain)'), 'trim after the true-peak limiter');
+assert.ok(chainBody7.includes('trimGain.connect(ceiling)'), 'ceiling after the trim, so nothing bypasses it');
+assert.ok(chainBody7.includes('output: ceiling'), 'chain output is the ceiling node');
 assert.equal(typeof MaestroDSP.renderChain, 'function', 'renderChain helper shared by export and calibration');
 const autoRunBody = appSrc6.slice(appSrc6.indexOf('async function runAutoMaster'), appSrc6.indexOf('// ============================================================================\n// Preset Profile Management'));
 assert.ok(autoRunBody.includes('renderChain'), 'AUTO calibrates from a real render');
@@ -393,3 +461,142 @@ assert.ok(uploadBody.includes('cancelAutoRun()'), 'upload cancels an in-flight A
 const cancelBody = appSrc6.slice(appSrc6.indexOf('/** Cancel an in-flight AUTO run'), appSrc6.indexOf('function ensureAudioContext'));
 assert.ok(cancelBody.includes('autoRunToken') && cancelBody.includes('disabled = false'), 'cancel re-enables the AUTO button');
 console.log('Refresh parity: PASS');
+
+// ---- Audit pass: live/export parity outside the AUTO flow ----
+// 2. Preset switch mid-playback must rebuild the chain: clearAutoParams only
+// resets params, so the old track's AUTO de-esser/trim stayed audible while
+// export rendered the cleared params.
+{
+  const presetBody = appSrc6.slice(appSrc6.indexOf('function applyPreset'), appSrc6.indexOf('// ============================================================================\n// AUTO Controls Wiring'));
+  assert.ok(presetBody.includes('clearAutoParams()'), 'applyPreset clears AUTO params');
+  const rebuild = presetBody.slice(presetBody.indexOf('persistCurrentSettings()'));
+  assert.ok(/if \(dsp && currentSource\) dsp\.connect\(currentSource, audioCtx\.destination\)/.test(rebuild),
+    'applyPreset must rebuild the live chain in place when a source is playing');
+}
+
+// 3. Reset to demo must cancel an in-flight AUTO run, or a finishing run applies
+// the old track's trim/issues to the demo.
+{
+  const resetIdx = appSrc6.indexOf("resetDemoBtn.addEventListener('click'");
+  assert.ok(resetIdx > 0, 'reset handler present');
+  const resetBody = appSrc6.slice(resetIdx, resetIdx + 400);
+  assert.ok(resetBody.includes('cancelAutoRun()'), 'reset-to-demo must cancel an in-flight AUTO run');
+  assert.ok(resetBody.indexOf('cancelAutoRun()') < resetBody.indexOf('uploadedBuffer = null'),
+    'cancel must come first, before the reset starts touching state');
+}
+
+// 5. Restarting playback must resume from the current position: playbackOffset
+// is stale while playing, so a bare startPlayback() jumped back to it.
+{
+  const applyBody = appSrc6.slice(appSrc6.indexOf('function applyAutoReport'), appSrc6.indexOf('/**\n * Full-track analysis in a module Worker'));
+  assert.ok(applyBody.includes('startPlayback(getCurrentPlaybackTime())'), 'applyAutoReport must restart at the current time');
+  const autoCtrlBody = appSrc6.slice(appSrc6.indexOf('function setupAutoControls'), appSrc6.indexOf('// ============================================================================\n// Export WAV Offline Handler'));
+  assert.ok(!/startPlayback\(\)/.test(autoCtrlBody), 'AUTO controls must not restart from the stale offset while playing');
+  assert.equal((autoCtrlBody.match(/startPlayback\(getCurrentPlaybackTime\(\)\)/g) || []).length, 3,
+    'both A/B play buttons and revert must pass the current playback time');
+}
+
+// 7. The telemetry panel labels the whole track, so it must analyse the whole track.
+// It now reuses AUTO's off-thread full-track report instead of re-running the
+// detectors on the main thread (5.4 s of frozen page on a 4-minute track).
+{
+  const forensicBody = appSrc6.slice(appSrc6.indexOf('function runForensicAnalysis'), appSrc6.indexOf('export function updateTelemetryUI'));
+  assert.ok(!forensicBody.includes('sr * 12'), 'telemetry must not cap analysis at 12 s while labelling the full duration');
+  assert.ok(forensicBody.includes('reportFor(buffer)'),
+    'telemetry must analyse the full buffer off the main thread, reusing the shared report');
+  assert.ok(!/CarrierDetector\.analyze|StegoDetector\.analyze/.test(forensicBody),
+    'telemetry must not re-run the detectors the full-track report already ran');
+  assert.ok(forensicBody.includes('forensicToken'), 'a newer track load must supersede an in-flight telemetry run');
+}
+
+// 11. Full-track analysis runs off the main thread, cancellable by the run token.
+{
+  const workerBody = appSrc6.slice(appSrc6.indexOf('async function analyzeFullTrackOffThread'), appSrc6.indexOf('async function runAutoMaster'));
+  assert.ok(workerBody.includes("new Worker(new URL('./modules/analyzer-worker.js', import.meta.url), { type: 'module' })"),
+    'analysis must use a module Worker resolved relative to app.js (static hosting, no build step)');
+  assert.ok(workerBody.includes('terminate()'), 'a settled/cancelled run must terminate its worker');
+  assert.ok(workerBody.includes('SpectralAnalyzer.analyzeFullTrack'), 'a main-thread fallback keeps AUTO working without module workers');
+  const runBody = appSrc6.slice(appSrc6.indexOf('async function runAutoMaster'), appSrc6.indexOf('// ============================================================================\n// Preset Profile Management'));
+  const awaitIdx = runBody.indexOf('await reportFor(buffer)');
+  assert.ok(awaitIdx > 0, 'runAutoMaster must await the shared worker report');
+  assert.ok(runBody.slice(awaitIdx, awaitIdx + 200).includes('token !== autoRunToken'),
+    'the run token must be re-checked after the await so cancelAutoRun still works');
+  // The worker wrapper is additive: analyzer.js keeps its Node import surface.
+  const workerSrc = readFs(new URL('./docs/modules/analyzer-worker.js', import.meta.url), 'utf8');
+  assert.ok(workerSrc.includes("import { SpectralAnalyzer } from './analyzer.js'"), 'worker imports the same analyzer module the tests use');
+  assert.ok(workerSrc.includes('analyzeFullTrack'), 'worker runs the real full-track analysis');
+  assert.ok(!readFs(new URL('./docs/modules/analyzer.js', import.meta.url), 'utf8').includes('self.onmessage'),
+    'analyzer.js must stay worker-agnostic for the Node suites');
+
+  // The worker module itself must produce the same report as a direct call.
+  // It only touches `self`, so a shim runs the real file here.
+  const posted = [];
+  globalThis.self = { onmessage: null, postMessage: (m) => posted.push(m) };
+  await import('./docs/modules/analyzer-worker.js');
+  assert.equal(typeof globalThis.self.onmessage, 'function', 'worker must install an onmessage handler');
+  const wLen = SR * 2;
+  const wL = new Float32Array(wLen), wR = new Float32Array(wLen);
+  for (let i = 0; i < wLen; i++) { wL[i] = 0.4 * Math.sin((2 * Math.PI * 440 * i) / SR); wR[i] = 0.2 * Math.sin((2 * Math.PI * 440 * i) / SR); }
+  const direct = SpectralAnalyzer.analyzeFullTrack(fakeBuffer([wL, wR], SR));
+  globalThis.self.onmessage({ data: { channels: [wL, wR], sampleRate: SR } });
+  assert.equal(posted.length, 1, 'worker must post exactly one reply');
+  assert.ok(!posted[0].error, 'worker must not report an error on a valid buffer: ' + posted[0].error);
+  assert.deepEqual(posted[0].report, direct, 'worker report must equal the main-thread analysis');
+  // A bad payload must surface as an error message, not a silent hang.
+  globalThis.self.onmessage({ data: { channels: [], sampleRate: SR } });
+  assert.ok(posted[1] && posted[1].error, 'worker must post an error instead of throwing');
+  delete globalThis.self;
+
+  // The app-side wrapper: resolves the worker report, terminates, and falls back
+  // to the main thread when workers are unavailable or fail.
+  const fnSrc = appSrc6.slice(appSrc6.indexOf('async function analyzeFullTrackOffThread'), appSrc6.indexOf('async function runAutoMaster'));
+  // import.meta.url is not legal inside new Function; pin it to app.js's own URL.
+  const shimmed = fnSrc.replace('import.meta.url', JSON.stringify(new URL('./docs/app.js', import.meta.url).href));
+  const makeWrapper = (WorkerImpl) => new Function('SpectralAnalyzer', 'Worker', 'console',
+    shimmed + '\nreturn analyzeFullTrackOffThread;')(SpectralAnalyzer, WorkerImpl, { warn() {} });
+  const wBuf = fakeBuffer([wL, wR], SR);
+  let terminated = 0, sawUrl = '', sawOpts = null;
+  class GoodWorker {
+    constructor(url, opts) { sawUrl = String(url); sawOpts = opts; }
+    postMessage(msg) { this.onmessage({ data: { report: SpectralAnalyzer.analyzeFullTrack(fakeBuffer(msg.channels, msg.sampleRate)) } }); }
+    terminate() { terminated++; }
+  }
+  const viaWorker = await makeWrapper(GoodWorker)(wBuf);
+  assert.deepEqual(viaWorker, direct, 'wrapper must resolve the worker report unchanged');
+  assert.ok(sawUrl.endsWith('modules/analyzer-worker.js'), 'worker URL must resolve next to app.js, got ' + sawUrl);
+  assert.deepEqual(sawOpts, { type: 'module' }, 'worker must be a module worker (static hosting, no build)');
+  assert.equal(terminated, 1, 'the wrapper must terminate the worker once it settles');
+  // A worker that reports an error must not lose the analysis.
+  class BadWorker {
+    postMessage() { this.onmessage({ data: { error: 'boom' } }); }
+    terminate() {}
+  }
+  assert.deepEqual(await makeWrapper(BadWorker)(wBuf), direct, 'worker failure must fall back to the main thread');
+  // No Worker constructor at all (file:// origin): still analyse.
+  const ThrowingWorker = function () { throw new Error('module workers unsupported'); };
+  assert.deepEqual(await makeWrapper(ThrowingWorker)(wBuf), direct, 'missing worker support must fall back to the main thread');
+}
+
+// 13. Negative carrier prominence must not render "+-4.20 dB".
+{
+  const telemetryBody = appSrc6.slice(appSrc6.indexOf('function updateTelemetryUI'), appSrc6.indexOf('function formatPlaybackTime'));
+  assert.ok(!/`\+\$\{c\d?\.prominenceDB/.test(telemetryBody), 'carrier readouts must not hardcode a + prefix');
+  // One loop over three slots now writes all three cards (audit 9): a per-card
+  // copy is why a stale third card could exist in the first place.
+  assert.ok(/for \(let slot = 1; slot <= 3; slot\+\+\)/.test(telemetryBody), 'the three tone cards must be written from one loop');
+  assert.ok(telemetryBody.includes('fmtProm(c.prominenceDB)'), 'the card loop must use the sign-aware formatter');
+  const fmtPromSrc = telemetryBody.slice(telemetryBody.indexOf('const fmtProm'), telemetryBody.indexOf('\n', telemetryBody.indexOf('const fmtProm')));
+  const fmtProm = new Function('return ' + fmtPromSrc.replace(/^const fmtProm = /, '').replace(/;$/, ''))();
+  assert.equal(fmtProm(4.2), '+4.20 dB', 'positive prominence keeps the explicit +');
+  assert.equal(fmtProm(-4.2), '-4.20 dB', 'negative prominence must read -4.20 dB, not +-4.20 dB');
+  assert.equal(fmtProm(0), '0.00 dB', 'zero carries no sign');
+}
+
+// 14. The target selector must work after a reload: autoParams is restored while
+// autoReport is still null.
+{
+  const autoCtrlBody = appSrc6.slice(appSrc6.indexOf('function setupAutoControls'), appSrc6.indexOf('// ============================================================================\n// Export WAV Offline Handler'));
+  assert.ok(/if \(autoReport \|\| autoParams\) runAutoMaster\(\)/.test(autoCtrlBody),
+    'target change must re-run AUTO when only the restored autoParams exist');
+}
+console.log('Audit pass: PASS');

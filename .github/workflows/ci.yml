@@ -43,3 +43,5 @@ jobs:
           node deshimmer-repro.mjs
           node dom-contract.mjs
           node link-check.mjs
+          node bughunt-repro.mjs
+          node measure-repro.mjs

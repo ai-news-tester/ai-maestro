@@ -63,7 +63,12 @@ export class FLKnob {
     this.el.addEventListener('wheel', (e) => {
       e.preventDefault();
       const mult = e.shiftKey ? 0.2 : 1.0;
-      const delta = (e.deltaY < 0 ? this.step : -this.step) * mult;
+      // Trackpads send horizontal-only scrolls; reading deltaY alone stepped
+      // every deltaX gesture down, whichever way the finger moved.
+      const dy = e.deltaY || 0;
+      const d = Math.abs(dy) > Math.abs(e.deltaX || 0) ? dy : -(e.deltaX || 0);
+      if (!d) return;
+      const delta = (d < 0 ? this.step : -this.step) * mult;
       this.setValue(this.val + delta, true, e.shiftKey ? this.fineStep() : null);
     }, { passive: false });
 

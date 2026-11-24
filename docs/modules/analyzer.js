@@ -431,32 +431,64 @@ export class StegoDetector {
 // ============================================================================
 export class SpectralAnalyzer {
   /**
-   * Compute average spectral flatness and dynamic range metrics.
-   * @param {Float32Array} samples
-   * @param {number} sr
-   * @returns {Object}
+   * One streamed STFT pass feeding both the flatness metrics and the shimmer
+   * accumulators: analyze() and measureShimmer() used identical frames (2048/1024)
+   * over the same mono array, so a full-track analysis paid for the pass twice.
    */
-  static analyze(samples, sr) {
-    const nfft = 2048;
-    const hop = nfft >> 1;
-    const stft = AudioMath.stft(samples, nfft, hop);
-
-    let sfmSum = 0;
-    stft.forEachFrame((frame) => {
+  static _spectralPass(samples, sr) {
+    const stft = AudioMath.stft(samples, 2048, 1024);
+    const hfLo = Math.floor(8000 / (sr / 2048));
+    let sfmSum = 0, hfFlatSum = 0, hfTotal = 0, allTotal = 0, hfMean = 0, hfM2 = 0;
+    stft.forEachFrame((frame, f) => {
       sfmSum += AudioMath.spectralFlatness(frame);
+      hfFlatSum += AudioMath.spectralFlatness(frame.slice(hfLo));
+      let e = 0, ae = 0;
+      for (let k = hfLo; k < frame.length; k++) e += frame[k] * frame[k];
+      for (const v of frame) ae += v * v;
+      hfTotal += e; allTotal += ae;
+      const n = f + 1;
+      const delta = e - hfMean;
+      hfMean += delta / n;
+      hfM2 += delta * (e - hfMean);
     });
-    const avgSFM = stft.numFrames > 0 ? sfmSum / stft.numFrames : 0;
+    return { numFrames: stft.numFrames, sfmSum, hfFlatSum, hfTotal, allTotal, hfMean, hfM2 };
+  }
 
+  /** Shimmer result from a shared pass, so the numbers match a standalone run. */
+  static _shimmerFromPass(p) {
+    const zero = { score: 0, confidence: 0, hfFlatness: 0, hfVariance: 0 };
+    if (!p.numFrames) return zero;
+    const hfFlatness = p.hfFlatSum / p.numFrames;
+    const mean = p.hfMean || 0;
+    const variance = mean > 0 ? Math.sqrt(p.hfM2 / p.numFrames) / mean : 0;
+    const hfRatio = p.allTotal > 0 ? p.hfTotal / p.allTotal : 0;
+    if (hfRatio < 0.01) return { score: 0, confidence: 0.5, hfFlatness: +hfFlatness.toFixed(4), hfVariance: +variance.toFixed(4) };
+    const score = Math.max(0, Math.min(1, 0.5 * hfFlatness + 0.5 * Math.min(1, variance)));
+    return { score: +score.toFixed(4), confidence: +Math.min(1, p.numFrames / 20).toFixed(3), hfFlatness: +hfFlatness.toFixed(4), hfVariance: +variance.toFixed(4) };
+  }
+
+  /** Flatness + dynamic range from a shared pass. */
+  static _analyzeFromPass(samples, p) {
+    const avgSFM = p.numFrames > 0 ? p.sfmSum / p.numFrames : 0;
     const peak = AudioMath.peakDBFS(samples);
     const rms = AudioMath.rmsDBFS(samples);
     const crest = Number.isFinite(peak) && Number.isFinite(rms) ? peak - rms : 0;
-
     return {
       spectralFlatness: +avgSFM.toFixed(4),
       peakDBFS: +peak.toFixed(1),
       rmsDBFS: +rms.toFixed(1),
       crestFactorDB: +crest.toFixed(1),
     };
+  }
+
+  /**
+   * Compute average spectral flatness and dynamic range metrics.
+   * @param {Float32Array} samples
+   * @param {number} sr
+   * @returns {Object}
+   */
+  static analyze(samples, sr) {
+    return this._analyzeFromPass(samples, this._spectralPass(samples, sr));
   }
 
   /**
@@ -489,6 +521,12 @@ export class SpectralAnalyzer {
   /** Apply one biquad (Direct Form I) to samples, returning Float64Array. */
   static biquad(samples, c) {
     const out = new Float64Array(samples.length);
+    this.biquadInto(samples, c, out);
+    return out;
+  }
+
+  /** Same biquad, filtered into `out` (Float32 or Float64): lets a caller reuse one buffer. */
+  static biquadInto(samples, c, out) {
     let x1 = 0, x2 = 0, y1 = 0, y2 = 0;
     for (let i = 0; i < samples.length; i++) {
       const x0 = samples[i];
@@ -510,16 +548,28 @@ export class SpectralAnalyzer {
     const { shelf, hp } = this.kWeightCoeffs(sr);
     const chans = right ? [left, right] : [left];
 
-    // Prefix sums of K-weighted squares per channel => O(1) block energies
-    const prefix = chans.map((ch) => {
-      const kw = this.biquad(this.biquad(ch, shelf), hp);
-      const p = new Float64Array(n + 1);
-      for (let i = 0; i < n; i++) p[i + 1] = p[i] + kw[i] * kw[i];
-      return p;
+    // One K-weighted array per channel, filtered once: full-length Float64
+    // prefix sums of squares cost ~0.9 GB on a 10-minute track and killed the tab.
+    // One scratch array serves both filter stages and both channels: a fresh
+    // Float64Array per stage was another 220 MB per channel, transient. It stays
+    // Float64 so the intermediate rounding is the one the meter was verified on.
+    const scratch = new Float64Array(n);
+    const kwChans = chans.map((ch) => {
+      const kw = new Float32Array(n);
+      this.biquadInto(ch, shelf, scratch);
+      this.biquadInto(scratch, hp, kw);
+      return kw;
     });
     const blockEnergy = (start, end) => {
       let z = 0;
-      for (const p of prefix) z += (p[end] - p[start]) / (end - start);
+      // Direct summation per block, not per-sample prefix storage: a sliding
+      // sum would drift over 26M adds, and every sample is visited a fixed
+      // number of times (400/100 ms overlap, plus the sparse 3 s LRA windows).
+      for (const kw of kwChans) {
+        let s = 0;
+        for (let i = start; i < end; i++) s += kw[i] * kw[i];
+        z += s / (end - start);
+      }
       return z; // channel weights 1.0 for L/R per BS.1770
     };
     const loud = (z) => (z > 0 ? -0.691 + 10 * Math.log10(z) : -Infinity);
@@ -594,16 +644,28 @@ export class SpectralAnalyzer {
       for (let t = 0; t < phases[p].length; t++) phases[p][t] /= sum; // DC-preserving
     }
     let peak = 0;
-    for (let i = 0; i < n; i++) {
+    // Only the first 12 samples can read past the start of the buffer, so the
+    // bounds check runs on that edge alone instead of ~830M times per track.
+    const taps0 = phases[1].length;
+    const edge = Math.min(n, taps0);
+    for (let i = 0; i < edge; i++) {
       const abs = Math.abs(samples[i]);
       if (abs > peak) peak = abs;
       for (let p = 1; p < 4; p++) {
         const taps = phases[p];
         let y = 0;
-        for (let m = 0; m < taps.length; m++) {
-          const idx = i - m;
-          if (idx >= 0 && idx < n) y += taps[m] * samples[idx];
-        }
+        for (let m = 0; m <= i && m < taps.length; m++) y += taps[m] * samples[i - m];
+        const ay = Math.abs(y);
+        if (ay > peak) peak = ay;
+      }
+    }
+    for (let i = edge; i < n; i++) {
+      const abs = Math.abs(samples[i]);
+      if (abs > peak) peak = abs;
+      for (let p = 1; p < 4; p++) {
+        const taps = phases[p];
+        let y = 0;
+        for (let m = 0; m < taps.length; m++) y += taps[m] * samples[i - m];
         const ay = Math.abs(y);
         if (ay > peak) peak = ay;
       }
@@ -612,31 +674,8 @@ export class SpectralAnalyzer {
   }
 
   static measureShimmer(samples, sr) {
-    if (!samples || samples.length < 2048) return { score: 0, confidence: 0, hfFlatness: 0, hfVariance: 0, resonanceProminence: 0 };
-    const stft = AudioMath.stft(samples, 2048, 1024);
-    if (!stft.numFrames) return { score: 0, confidence: 0, hfFlatness: 0, hfVariance: 0, resonanceProminence: 0 };
-    const hfLo = Math.floor(8000 / (sr / 2048));
-    let flatSum = 0, hfTotal = 0, allTotal = 0;
-    // Streamed Welford over per-frame HF energy: no frame array retained.
-    let hfMean = 0, hfM2 = 0;
-    stft.forEachFrame((frame, f) => {
-      flatSum += AudioMath.spectralFlatness(frame.slice(hfLo));
-      let e = 0, ae = 0;
-      for (let k = hfLo; k < frame.length; k++) e += frame[k] * frame[k];
-      for (const v of frame) ae += v * v;
-      hfTotal += e; allTotal += ae;
-      const n = f + 1;
-      const delta = e - hfMean;
-      hfMean += delta / n;
-      hfM2 += delta * (e - hfMean);
-    });
-    const hfFlatness = flatSum / stft.numFrames;
-    const mean = hfMean || 0;
-    const variance = mean > 0 ? Math.sqrt(hfM2 / stft.numFrames) / mean : 0;
-    const hfRatio = allTotal > 0 ? hfTotal / allTotal : 0;
-    if (hfRatio < 0.01) return { score: 0, confidence: 0.5, hfFlatness: +hfFlatness.toFixed(4), hfVariance: +variance.toFixed(4), resonanceProminence: 0 };
-    const score = Math.max(0, Math.min(1, 0.5 * hfFlatness + 0.5 * Math.min(1, variance)));
-    return { score: +score.toFixed(4), confidence: +Math.min(1, stft.numFrames / 20).toFixed(3), hfFlatness: +hfFlatness.toFixed(4), hfVariance: +variance.toFixed(4), resonanceProminence: 0 };
+    if (!samples || samples.length < 2048) return { score: 0, confidence: 0, hfFlatness: 0, hfVariance: 0 };
+    return this._shimmerFromPass(this._spectralPass(samples, sr));
   }
 
   static analyzeFullTrack(buffer) {
@@ -653,7 +692,7 @@ export class SpectralAnalyzer {
       let clips = 0, sumL = 0, sumR = 0;
       for (let i = 0; i < len; i++) { if (Math.abs(left[i]) >= 0.999) clips++; sumL += left[i]; sumR += right[i]; }
       const silent = !Number.isFinite(rms) || rms < -60;
-      return { integratedLUFS: -Infinity, loudnessRange: 0, truePeakDBTP: Number.isFinite(peak) ? peak : -Infinity, peakDBFS: peak, rmsDBFS: rms, crestFactorDB: Number.isFinite(peak) && Number.isFinite(rms) ? +(peak - rms).toFixed(1) : 0, clippingCount: clips, dcOffsetL: +(sumL / len).toFixed(6), dcOffsetR: +(sumR / len).toFixed(6), silenceRanges: silent ? [{ start: 0, end: +duration.toFixed(3) }] : [], fadeIn: 0, fadeOut: 0, stereoWidth: 0, correlation: 0, monoLowsDB: -Infinity, spectralTilt: 0, harshPeaks: [], sibilance: 0, hfCutoff: sr / 2, carriers: [], echoConfidence: 0, shimmer: { score: 0, confidence: 0 }, sampleRate: sr, duration };
+      return { integratedLUFS: -Infinity, loudnessRange: 0, truePeakDBTP: Number.isFinite(peak) ? peak : -Infinity, peakDBFS: peak, rmsDBFS: rms, crestFactorDB: Number.isFinite(peak) && Number.isFinite(rms) ? +(peak - rms).toFixed(1) : 0, spectralFlatness: 0, clippingCount: clips, dcOffsetL: +(sumL / len).toFixed(6), dcOffsetR: +(sumR / len).toFixed(6), silenceRanges: silent ? [{ start: 0, end: +duration.toFixed(3) }] : [], fadeIn: 0, fadeOut: 0, stereoWidth: 0, correlation: 0, monoLowsDB: -Infinity, spectralTilt: 0, harshPeaks: [], sibilance: 0, hfCutoff: sr / 2, carriers: [], echoes: [], echoConfidence: 0, shimmer: { score: 0, confidence: 0 }, sampleRate: sr, duration };
     }
     let clippingCount = 0, sumL = 0, sumR = 0;
     for (let i = 0; i < len; i++) { if (Math.abs(left[i]) >= 0.999) clippingCount++; if (right !== left && Math.abs(right[i]) >= 0.999) clippingCount++; sumL += left[i]; sumR += right[i]; }
@@ -668,8 +707,13 @@ export class SpectralAnalyzer {
     if (start >= 0 && len - start >= sr * 0.2) ranges.push({ start: +(start / sr).toFixed(3), end: +(len / sr).toFixed(3) });
     const mono = new Float32Array(len);
     for (let i = 0; i < len; i++) mono[i] = (left[i] + right[i]) * 0.5;
-    const base = this.analyze(mono, sr);
-    const loud = this.measureLoudness(left, right, sr);
+    // One shared STFT pass feeds flatness and shimmer (they used identical frames).
+    const pass = this._spectralPass(mono, sr);
+    const base = this._analyzeFromPass(mono, pass);
+    // Mono is ONE channel per BS.1770: the dual-mono alias above is for the
+    // mixdown/correlation maths only. Measuring it twice read 3 dB high, so AUTO
+    // chose its gain from an inflated number and the export landed 3 dB low.
+    const loud = this.measureLoudness(left, buffer.numberOfChannels > 1 ? right : null, sr);
     // Band energies come from windows strided across the WHOLE track, not 8 fixed
     // ones: a 2 s defect between them used to be invisible. Accumulate mean POWER
     // per bin (not mean magnitude, then squared) so a localised burst is not
@@ -704,6 +748,6 @@ export class SpectralAnalyzer {
     try { carrier = CarrierDetector.analyze(mono, sr); } catch {}
     try { stego = StegoDetector.analyze(mono, sr); } catch {}
     const lastR = ranges[ranges.length - 1];
-    return { integratedLUFS: loud.integratedLUFS, loudnessRange: loud.loudnessRange, truePeakDBTP: loud.truePeakDBTP, peakDBFS: base.peakDBFS, rmsDBFS: base.rmsDBFS, crestFactorDB: base.crestFactorDB, spectralFlatness: base.spectralFlatness, clippingCount, dcOffsetL: +(sumL / len).toFixed(6), dcOffsetR: +(sumR / len).toFixed(6), silenceRanges: ranges, fadeIn: ranges.length && ranges[0].start === 0 ? ranges[0].end : 0, fadeOut: lastR && Math.abs(lastR.end - duration) < 0.1 ? +(duration - lastR.start).toFixed(3) : 0, stereoWidth: +stereoWidth.toFixed(4), correlation: +correlation.toFixed(4), monoLowsDB: +(10 * Math.log10(bandE(20, 120) / totalE + 1e-12)).toFixed(2), spectralTilt: +(10 * Math.log10((bandE(8000, 16000) + 1e-12) / (bandE(100, 1000) + 1e-12))).toFixed(2), harshPeaks, sibilance: +(bandE(5000, 8000) / totalE).toFixed(4), hfCutoff, carriers: carrier.carriers || [], echoConfidence: stego.confidence || 0, shimmer: this.measureShimmer(mono, sr), sampleRate: sr, duration };
+    return { integratedLUFS: loud.integratedLUFS, loudnessRange: loud.loudnessRange, truePeakDBTP: loud.truePeakDBTP, peakDBFS: base.peakDBFS, rmsDBFS: base.rmsDBFS, crestFactorDB: base.crestFactorDB, spectralFlatness: base.spectralFlatness, clippingCount, dcOffsetL: +(sumL / len).toFixed(6), dcOffsetR: +(sumR / len).toFixed(6), silenceRanges: ranges, fadeIn: ranges.length && ranges[0].start === 0 ? ranges[0].end : 0, fadeOut: lastR && Math.abs(lastR.end - duration) < 0.1 ? +(duration - lastR.start).toFixed(3) : 0, stereoWidth: +stereoWidth.toFixed(4), correlation: +correlation.toFixed(4), monoLowsDB: +(10 * Math.log10(bandE(20, 120) / totalE + 1e-12)).toFixed(2), spectralTilt: +(10 * Math.log10((bandE(8000, 16000) + 1e-12) / (bandE(100, 1000) + 1e-12))).toFixed(2), harshPeaks, sibilance: +(bandE(5000, 8000) / totalE).toFixed(4), hfCutoff, carriers: carrier.carriers || [], echoes: stego.echoes || [], echoConfidence: stego.confidence || 0, shimmer: this._shimmerFromPass(pass), sampleRate: sr, duration };
   }
 }

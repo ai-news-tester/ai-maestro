@@ -4,8 +4,8 @@
  * and the 15-control mastering rack.
  */
 
-import { CarrierDetector, StegoDetector, SpectralAnalyzer } from './modules/analyzer.js';
-import { MaestroDSP } from './modules/dsp.js?v=11'; // shortcut: manual ?v= cache-bust, bump when dsp.js changes
+import { SpectralAnalyzer } from './modules/analyzer.js';
+import { MaestroDSP } from './modules/dsp.js?v=12'; // shortcut: manual ?v= cache-bust, bump app.js/dsp.js/style.css together when any module changes
 import { mapAutoReport } from './modules/auto.js';
 import { SpectrumRenderer, buildAutoIssues } from './modules/spectrum.js';
 import { UIController } from './modules/ui.js';
@@ -64,8 +64,9 @@ function clearAutoParams() {
   if (dsp) {
     Object.assign(dsp.params, {
       autoTrimDb: 0, integratedLUFS: null, targetLUFS: null, sibilance: 0,
-      hfCutoff: 0, correlation: 1, msBass: 0, crestFactorDB: 12, limiterEngaged: false,
+      hfCutoff: 0, correlation: 1, msBass: 0, crestFactorDB: 12,
     });
+    dsp.setAudition(null);
   }
   if (spectrum) spectrum.setAutoIssues([]);
   renderAutoIssues([]);
@@ -102,6 +103,9 @@ function ensureAudioContext() {
         targetLUFS: autoParams.targetLUFS,
         autoTrimDb: autoParams.autoTrimDb || 0,
       });
+      // The persisted audition must survive a reload, or BYPASS reverts to a
+      // unity A/B that the louder master silently wins.
+      dsp.setAudition(autoParams.audition || null);
     }
     // Restore ran before dsp existed, so apply the saved bypass now or the
     // user would hear processed audio under a BYPASS (RAW) label.
@@ -122,6 +126,20 @@ function applyCompositeKnobDSP() {
 }
 
 let loadAudioToken = 0;
+
+/**
+ * The chain is stereo: the meter reads L/R, live playback downmixes to the output
+ * device, and export writes every channel the file carries. A 5.1 file therefore
+ * got a gain chosen from its quiet L/R pair applied to a loud centre channel,
+ * while the panel called the track silent. Refuse rather than measure two
+ * channels and process six.
+ */
+export function requireSupportedChannels(buffer) {
+  if (buffer.numberOfChannels > 2) {
+    throw new Error(`${buffer.numberOfChannels}-channel audio is not supported — use a mono or stereo file`);
+  }
+  return buffer;
+}
 
 async function loadAudioFile(url) {
   const token = ++loadAudioToken; // rapid pill clicks: last click wins, not last decode
@@ -150,6 +168,7 @@ async function loadAudioFile(url) {
     });
     if (token !== loadAudioToken) return;
 
+    requireSupportedChannels(decoded);
     currentBuffer = decoded;
     runForensicAnalysis(currentBuffer);
 
@@ -169,89 +188,67 @@ async function loadAudioFile(url) {
   }
 }
 
-function runForensicAnalysis(buffer) {
+/**
+ * The measurement panel reads the same full-track report AUTO uses, computed off
+ * the main thread. The old pass re-ran carrier + echo + flatness here on the main
+ * thread: 5.4 s of frozen page on a 4-minute track, for numbers already measured.
+ */
+let forensicToken = 0;
+
+async function runForensicAnalysis(buffer) {
+  const token = ++forensicToken; // rapid track switches: last load wins
   const statusEl = document.getElementById('forensicStatus');
   if (statusEl) statusEl.textContent = 'Executing real FFT & cepstral analysis...';
-
-  setTimeout(() => {
-    const sr = buffer.sampleRate;
-    const len = Math.min(buffer.length, sr * 12); // Up to 12s of PCM
-
-    let samples;
-    if (buffer.numberOfChannels > 1) {
-      const ch0 = buffer.getChannelData(0);
-      const ch1 = buffer.getChannelData(1);
-      samples = new Float32Array(len);
-      for (let i = 0; i < len; i++) {
-        samples[i] = (ch0[i] + ch1[i]) * 0.5;
-      }
-    } else {
-      samples = buffer.getChannelData(0).slice(0, len);
-    }
-
-    // Run real math algorithms
-    const carrier = CarrierDetector.analyze(samples, sr);
-    const stego = StegoDetector.analyze(samples, sr);
-    const spec = SpectralAnalyzer.analyze(samples, sr);
-
-    updateTelemetryUI(carrier, stego, spec, buffer);
-  }, 15);
+  try {
+    const report = await reportFor(buffer);
+    if (token !== forensicToken) return;
+    updateTelemetryUI(
+      { carriers: report.carriers },
+      { echoes: report.echoes, confidence: report.echoConfidence },
+      report,
+      buffer,
+    );
+  } catch (err) {
+    console.error('Analysis error:', err);
+    if (token !== forensicToken) return;
+    if (statusEl) statusEl.textContent = `Analysis failed: ${err.message}`;
+  }
 }
 
-function updateTelemetryUI(carrier, stego, spec, buffer) {
+export function updateTelemetryUI(carrier, stego, spec, buffer) {
+  // Declared before first use: fmtProm is read by the carrier cards above.
+  const fmtDb = (v) => (Number.isFinite(v) ? v.toFixed(1) : '-∞'); // silence is -Infinity, not "-Infinity"
+  const fmtProm = (v) => `${v > 0 ? '+' : ''}${v.toFixed(2)} dB`; // explicit + only when positive: "+-4.20 dB" is not a number
   const statusEl = document.getElementById('forensicStatus');
   if (statusEl) {
-    statusEl.textContent = `Analyzed ${buffer.duration.toFixed(1)}s PCM @ ${buffer.sampleRate} Hz (${buffer.numberOfChannels} ch)`;
+    // Tilt, mono lows and the fades are measured on every run; showing them here
+    // is what makes the README's list of measurements true of the panel.
+    const extra = [];
+    if (Number.isFinite(spec.spectralTilt)) extra.push(`tilt ${spec.spectralTilt.toFixed(1)} dB`);
+    if (Number.isFinite(spec.monoLowsDB)) extra.push(`mono lows ${spec.monoLowsDB.toFixed(1)} dB`);
+    if (Number.isFinite(spec.fadeIn) && spec.fadeIn > 0) extra.push(`fade in ${spec.fadeIn.toFixed(2)}s`);
+    if (Number.isFinite(spec.fadeOut) && spec.fadeOut > 0) extra.push(`fade out ${spec.fadeOut.toFixed(2)}s`);
+    if (Array.isArray(spec.silenceRanges) && spec.silenceRanges.length) extra.push(`${spec.silenceRanges.length} silent range(s)`);
+    statusEl.textContent = `Analyzed ${buffer.duration.toFixed(1)}s PCM @ ${buffer.sampleRate} Hz (${buffer.numberOfChannels} ch)`
+      + (extra.length ? ` — ${extra.join(', ')}` : '');
   }
 
-  // Carrier 1 (15.5k)
-  const c1 = carrier.carriers[0];
-  const c1Freq = document.getElementById('carrier1Freq');
-  const c1Prom = document.getElementById('carrier1Prom');
-  const c1Bar = document.getElementById('carrier1Bar');
-  if (c1) {
-    if (c1Freq) c1Freq.textContent = `${(c1.freqHz / 1000).toFixed(2)} kHz`;
-    if (c1Prom) {
-      c1Prom.textContent = `+${c1.prominenceDB.toFixed(2)} dB`;
-      c1Prom.style.color = c1.prominenceDB > 3.0 ? 'var(--brick)' : 'var(--muted)';
+  // Three fixed slots: a band above Nyquist is absent (32 kHz material returns
+  // one carrier, not three), and an unwritten card would keep the previous
+  // track's reading under this track's label.
+  for (let slot = 1; slot <= 3; slot++) {
+    const c = carrier.carriers[slot - 1];
+    const freqEl = document.getElementById(`carrier${slot}Freq`);
+    const promEl = document.getElementById(`carrier${slot}Prom`);
+    const barEl = document.getElementById(`carrier${slot}Bar`);
+    if (freqEl) freqEl.textContent = c ? `${(c.freqHz / 1000).toFixed(2)} kHz` : 'n/a';
+    if (promEl) {
+      promEl.textContent = c ? fmtProm(c.prominenceDB) : 'n/a';
+      promEl.style.color = c && c.prominenceDB > 3.0 ? 'var(--brick)' : 'var(--muted)';
     }
-    if (c1Bar) {
-      c1Bar.style.width = `${Math.min(100, Math.round(c1.confidence * 100))}%`;
-      c1Bar.className = c1.confidence > 0.4 ? 'meter-fill alert' : 'meter-fill';
-    }
-  }
-
-  // Carrier 2 (17.5k)
-  const c2 = carrier.carriers[1];
-  const c2Freq = document.getElementById('carrier2Freq');
-  const c2Prom = document.getElementById('carrier2Prom');
-  const c2Bar = document.getElementById('carrier2Bar');
-  if (c2) {
-    if (c2Freq) c2Freq.textContent = `${(c2.freqHz / 1000).toFixed(2)} kHz`;
-    if (c2Prom) {
-      c2Prom.textContent = `+${c2.prominenceDB.toFixed(2)} dB`;
-      c2Prom.style.color = c2.prominenceDB > 3.0 ? 'var(--brick)' : 'var(--muted)';
-    }
-    if (c2Bar) {
-      c2Bar.style.width = `${Math.min(100, Math.round(c2.confidence * 100))}%`;
-      c2Bar.className = c2.confidence > 0.4 ? 'meter-fill alert' : 'meter-fill';
-    }
-  }
-
-  // Carrier 3 (19.5k)
-  const c3 = carrier.carriers[2];
-  const c3Freq = document.getElementById('carrier3Freq');
-  const c3Prom = document.getElementById('carrier3Prom');
-  const c3Bar = document.getElementById('carrier3Bar');
-  if (c3) {
-    if (c3Freq) c3Freq.textContent = `${(c3.freqHz / 1000).toFixed(2)} kHz`;
-    if (c3Prom) {
-      c3Prom.textContent = `+${c3.prominenceDB.toFixed(2)} dB`;
-      c3Prom.style.color = c3.prominenceDB > 3.0 ? 'var(--brick)' : 'var(--muted)';
-    }
-    if (c3Bar) {
-      c3Bar.style.width = `${Math.min(100, Math.round(c3.confidence * 100))}%`;
-      c3Bar.className = c3.confidence > 0.4 ? 'meter-fill alert' : 'meter-fill';
+    if (barEl) {
+      barEl.style.width = c ? `${Math.min(100, Math.round(c.confidence * 100))}%` : '0%';
+      barEl.className = c && c.confidence > 0.4 ? 'meter-fill alert' : 'meter-fill';
     }
   }
 
@@ -287,7 +284,6 @@ function updateTelemetryUI(carrier, stego, spec, buffer) {
   const valCrest = document.getElementById('valCrest');
   const valPeak = document.getElementById('valPeak');
   const valRms = document.getElementById('valRms');
-  const fmtDb = (v) => (Number.isFinite(v) ? v.toFixed(1) : '-∞'); // silence is -Infinity, not "-Infinity"
   if (valFlatness) valFlatness.textContent = spec.spectralFlatness.toFixed(4);
   if (valCrest) valCrest.textContent = `Crest ${spec.crestFactorDB.toFixed(1)} dB`;
   if (valPeak) valPeak.textContent = `Peak ${fmtDb(spec.peakDBFS)} dBFS`;
@@ -605,9 +601,9 @@ function applyAutoReport(report, auto) {
       crestFactorDB: auto.params.crestFactorDB,
       integratedLUFS: auto.params.integratedLUFS,
       targetLUFS: auto.params.targetLUFS,
-      limiterEngaged: auto.params.limiterEngaged,
       autoTrimDb: auto.params.autoTrimDb || 0,
     });
+    dsp.setAudition(auto.params.audition || null);
   }
 
   for (const [id, val] of Object.entries(auto.params)) {
@@ -623,8 +619,9 @@ function applyAutoReport(report, auto) {
   // AUTO must engage the chain, not leave BYPASS (RAW) on.
   applyBypassState(false);
 
-  // Rebuild the live chain so it matches export exactly.
-  if (dsp && isPlaying) startPlayback();
+  // Rebuild the live chain so it matches export exactly, from where playback is
+  // now: playbackOffset is stale while playing, so a bare restart jumped back.
+  if (dsp && isPlaying) startPlayback(getCurrentPlaybackTime());
 
   autoIssues = buildAutoIssues(report, auto.params, auto.reasons, auto.params.targetLUFS, registry);
   if (spectrum) spectrum.setAutoIssues(autoIssues);
@@ -637,6 +634,57 @@ function applyAutoReport(report, auto) {
     statusEl.textContent = `AUTO ${auto.presetKey}: ${lufs} LUFS -> target ${auto.params.targetLUFS}, true peak ${tp} dBTP, ${autoIssues.length} issue(s)`;
   }
   persistCurrentSettings();
+}
+
+/**
+ * Full-track analysis in a module Worker: analyzeFullTrack freezes the tab for
+ * seconds on a long track. Falls back to the main thread where module workers
+ * are unavailable (file:// origins), so AUTO still works everywhere.
+ *
+ * One report per buffer, shared by the panel and AUTO: both used to run the same
+ * 8 s job on the same audio, each copying the channels to its own worker. A new
+ * buffer replaces the in-flight run, so two workers never analyse at once.
+ */
+let analysisBuffer = null;
+let analysisPromise = null;
+
+function reportFor(buffer) {
+  if (analysisBuffer !== buffer || !analysisPromise) {
+    analysisBuffer = buffer;
+    analysisPromise = analyzeFullTrackOffThread(buffer);
+    // A failed run must not be cached: the next caller deserves a fresh attempt.
+    analysisPromise.catch(() => {
+      if (analysisBuffer === buffer) { analysisBuffer = null; analysisPromise = null; }
+    });
+  }
+  return analysisPromise;
+}
+
+async function analyzeFullTrackOffThread(buffer) {
+  const runOnMainThread = () => SpectralAnalyzer.analyzeFullTrack(buffer);
+  let worker;
+  try {
+    worker = new Worker(new URL('./modules/analyzer-worker.js', import.meta.url), { type: 'module' });
+  } catch (_) {
+    return runOnMainThread();
+  }
+  try {
+    return await new Promise((resolve, reject) => {
+      // One shot per run: terminate on settle, so a cancelled run stops computing.
+      const settle = (fn, arg) => { try { worker.terminate(); } catch (_) {} fn(arg); };
+      worker.onmessage = (e) => (e.data && e.data.error
+        ? settle(reject, new Error(e.data.error))
+        : settle(resolve, e.data.report));
+      worker.onerror = (e) => settle(reject, new Error(e.message || 'Analysis worker failed'));
+      const channels = [];
+      for (let c = 0; c < buffer.numberOfChannels; c++) channels.push(buffer.getChannelData(c));
+      // Copies, not transfers: currentBuffer keeps playing while AUTO analyses it.
+      worker.postMessage({ channels, sampleRate: buffer.sampleRate });
+    });
+  } catch (err) {
+    console.warn('Analysis worker unavailable, analysing on the main thread:', err);
+    return runOnMainThread();
+  }
 }
 
 async function runAutoMaster() {
@@ -654,7 +702,8 @@ async function runAutoMaster() {
     setAutoProgress('Detect: analysing full track...');
     await new Promise((r) => setTimeout(r, 0));
     if (token !== autoRunToken) return;
-    const report = SpectralAnalyzer.analyzeFullTrack(buffer);
+    const report = await reportFor(buffer);
+    if (token !== autoRunToken) return; // cancelAutoRun ran while the worker was busy
 
     setAutoProgress('Clean: mapping cleanup stages...');
     await new Promise((r) => setTimeout(r, 0));
@@ -668,6 +717,9 @@ async function runAutoMaster() {
     if (token !== autoRunToken) return;
     const measured = MaestroDSP.measureRender(rendered);
     auto.params.autoTrimDb = MaestroDSP.correctionGainDb(measured.integratedLUFS, measured.truePeakDBTP, auto.params.targetLUFS);
+    // Loudness-matched A/B: compare timbre, not level. Measured from the same
+    // render the trim comes from, so the monitor matches what export produces.
+    auto.params.audition = MaestroDSP.auditionGains(report, measured, auto.params.autoTrimDb);
 
     setAutoProgress('Master: applying chain...');
     applyAutoReport(report, auto);
@@ -717,6 +769,11 @@ function applyPreset(presetKey) {
 
   // Persist active preset & knob state to browser storage
   persistCurrentSettings();
+
+  // clearAutoParams only resets params: the AUTO nodes stay audible until the
+  // chain is rebuilt, so a preset switch mid-playback would keep the old
+  // track's de-esser/trim while export renders the cleared params.
+  if (dsp && currentSource) dsp.connect(currentSource, audioCtx.destination);
 }
 
 // ============================================================================
@@ -726,13 +783,14 @@ function setupAutoControls() {
   const autoBtn = document.getElementById('autoBtn');
   if (autoBtn) autoBtn.addEventListener('click', () => runAutoMaster());
   const targetSel = document.getElementById('autoTargetLUFS');
-  if (targetSel) targetSel.addEventListener('change', () => { if (autoReport) runAutoMaster(); });
+  // autoParams survives a reload while autoReport does not, so guard on both.
+  if (targetSel) targetSel.addEventListener('change', () => { if (autoReport || autoParams) runAutoMaster(); });
   const origBtn = document.getElementById('playOriginalBtn');
-  if (origBtn) origBtn.addEventListener('click', () => { applyBypassState(true); if (!isPlaying) startPlayback(); });
+  if (origBtn) origBtn.addEventListener('click', () => { applyBypassState(true); if (!isPlaying) startPlayback(getCurrentPlaybackTime()); });
   const autoPlayBtn = document.getElementById('playAutoBtn');
-  if (autoPlayBtn) autoPlayBtn.addEventListener('click', () => { applyBypassState(false); startPlayback(); });
+  if (autoPlayBtn) autoPlayBtn.addEventListener('click', () => { applyBypassState(false); startPlayback(getCurrentPlaybackTime()); });
   const revertBtn = document.getElementById('revertManualBtn');
-  if (revertBtn) revertBtn.addEventListener('click', () => { clearAutoParams(); applyPreset(lastManualPreset || 'standardEvasion'); if (isPlaying) startPlayback(); setAutoProgress('Reverted to manual preset'); });
+  if (revertBtn) revertBtn.addEventListener('click', () => { clearAutoParams(); applyPreset(lastManualPreset || 'standardEvasion'); if (isPlaying) startPlayback(getCurrentPlaybackTime()); setAutoProgress('Reverted to manual preset'); });
 }
 
 // ============================================================================
@@ -767,6 +825,9 @@ function setupExportWAV() {
       }
 
       const isBypassed = !!(dsp?.isBypassed || currentTrackType === 'raw' || currentTrackType === 'custom_raw');
+      // The peak check and 16-bit encode run on the main thread after the offline
+      // render (~2 s stereo on a long track), so say what the wait is for.
+      if (statusEl && !isBypassed) statusEl.textContent = 'Checking true peak and encoding 16-bit WAV...';
       const wavBlob = await MaestroDSP.exportWAV(currentBuffer, currentKnobValues, isBypassed);
       const downloadUrl = URL.createObjectURL(wavBlob);
 
@@ -775,7 +836,7 @@ function setupExportWAV() {
       const baseName = uploadedBuffer
         ? (currentTrackType === 'custom_raw' ? `${uploadedFileName}_original` : `${uploadedFileName}_processed`)
         : (currentTrackType === 'raw' ? 'cleaned_demo_original' : 'cleaned_audio');
-      a.download = autoParams ? `${uploadedFileName || baseName}.auto-master.wav` : `${baseName}_${Date.now()}.wav`;
+      a.download = (autoParams && !isBypassed) ? `${uploadedFileName || baseName}.auto-master.wav` : `${baseName}_${Date.now()}.wav`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
@@ -910,6 +971,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     if (resetDemoBtn) {
       resetDemoBtn.addEventListener('click', async () => {
+        cancelAutoRun(); // a finishing AUTO run must not trim the demo with the old track's numbers
         uploadedBuffer = null;
         uploadedFileName = '';
         await PersistenceManager.clearUploadedAudio();
@@ -931,6 +993,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       uploadInput.addEventListener('change', async (e) => {
         const file = e.target.files[0];
         if (!file) return;
+        e.target.value = ''; // same file picked twice must fire change again
 
         cancelAutoRun(); // cancel any in-flight AUTO calibration for the old track
         ensureAudioContext();
@@ -945,6 +1008,9 @@ document.addEventListener('DOMContentLoaded', async () => {
           // buffer, and a file that fails decode must not have overwritten
           // the previous good track in IndexedDB.
           const decoded = await audioCtx.decodeAudioData(arrayBuffer.slice(0));
+          // Reject before persisting: an unsupported file must not replace the
+          // previous good track in IndexedDB.
+          requireSupportedChannels(decoded);
           const persisted = await PersistenceManager.saveUploadedAudio(arrayBuffer, file.name);
 
           uploadedBuffer = decoded;
@@ -1006,16 +1072,19 @@ document.addEventListener('DOMContentLoaded', async () => {
       applyCompositeKnobDSP();
       if (savedSettings.autoParams) {
         autoParams = savedSettings.autoParams;
-        if (dsp) Object.assign(dsp.params, {
-          sibilance: autoParams.sibilance,
-          hfCutoff: autoParams.hfCutoff,
-          correlation: autoParams.correlation,
-          msBass: autoParams.msBass,
-          crestFactorDB: autoParams.crestFactorDB,
-          integratedLUFS: autoParams.integratedLUFS,
-          targetLUFS: autoParams.targetLUFS,
-          autoTrimDb: autoParams.autoTrimDb || 0,
-        });
+        if (dsp) {
+          Object.assign(dsp.params, {
+            sibilance: autoParams.sibilance,
+            hfCutoff: autoParams.hfCutoff,
+            correlation: autoParams.correlation,
+            msBass: autoParams.msBass,
+            crestFactorDB: autoParams.crestFactorDB,
+            integratedLUFS: autoParams.integratedLUFS,
+            targetLUFS: autoParams.targetLUFS,
+            autoTrimDb: autoParams.autoTrimDb || 0,
+          });
+          dsp.setAudition(autoParams.audition || null);
+        }
       }
       if (savedSettings.isBypassed) {
         // dsp may not exist yet (created on first user gesture); remember the
@@ -1037,6 +1106,9 @@ document.addEventListener('DOMContentLoaded', async () => {
           arrayBuffer = await savedAudio.data.arrayBuffer();
         }
         const decoded = await audioCtx.decodeAudioData(arrayBuffer.slice(0));
+        // A record saved before the channel guard existed must not trap every
+        // reload: the catch below drops it and falls back to the demo.
+        requireSupportedChannels(decoded);
 
         uploadedBuffer = decoded;
         currentBuffer = decoded;

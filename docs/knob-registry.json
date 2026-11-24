@@ -194,9 +194,9 @@
       "liveDSP": true,
       "info": {
         "title": "Texture Inject",
-        "purpose": "Asymmetric tanh saturation with a small even-harmonic term",
-        "description": "A saturating waveshaper that adds low-order harmonics, the way analogue gain stages colour a signal when pushed.",
-        "howItWorks": "A WaveShaperNode with tanh(drive * x) times (1 - 0.05 * amount * x^2), where drive is 1 + 1.5 * amount. The squared term makes the curve asymmetric, adding even harmonics. Runs at 2x oversampling.",
+        "purpose": "Odd-symmetric tanh saturation for low-order harmonic texture",
+        "description": "A saturating waveshaper that adds odd harmonics, the way analogue gain stages colour a signal when pushed.",
+        "howItWorks": "A WaveShaperNode with tanh(drive * x) times (1 - 0.05 * amount * x^2), where drive is 1 + 1.5 * amount. tanh is odd and the squared factor is even, so the curve stays odd-symmetric and adds odd harmonics only (3rd, 5th) - there is no even-harmonic term. Runs at 2x oversampling.",
         "tradeoff": "Adds warmth and presence at low settings; high settings audibly drive and compress peaks."
       }
     },
@@ -295,9 +295,9 @@
       "info": {
         "title": "Master Output",
         "purpose": "Output gain in dB, -12 to +6",
-        "description": "The final gain stage, used for monitoring level and for loudness trim when AUTO is not driving the chain.",
-        "howItWorks": "A GainNode set to 10^(dB/20). When AUTO has measured the track's integrated loudness, the chain applies its calibrated trim instead and this knob is held at unity.",
-        "tradeoff": "Use to balance monitoring volume or match pre-processing loudness; the limiter and -1 dB ceiling still apply upstream."
+        "description": "Gain staging into the limiter: drive the master harder or pull it back when AUTO is not driving the chain.",
+        "howItWorks": "A GainNode set to 10^(dB/20), placed before the Quality Gate limiter. When AUTO has measured the track's integrated loudness, the chain applies its calibrated trim instead and this knob is held at unity.",
+        "tradeoff": "Positive values drive the 20:1 limiter harder rather than exceeding the ceiling, so a boost adds density instead of clipping; negative values attenuate. The limiter and -1 dB ceiling apply downstream."
       }
     }
   ],

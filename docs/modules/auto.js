@@ -10,7 +10,8 @@ const TARGET_TP = -1;
 
 export const SIBILANCE_THRESHOLD = 0.15;
 
-const BASE = {
+// Exported so dsp.js can reuse it as the single source of default knob values.
+export const BASE = {
   carrierErase: 50,
   strideRemove: 35,
   stegoStrip: 45,
@@ -140,11 +141,6 @@ export function mapAutoReport(report = {}, targetLUFS = TARGET_LUFS) {
   }
   reasons.outputGain = `Integrated loudness ${Number.isFinite(lufs) ? lufs.toFixed(1) : 'n/a'} LUFS (target ${target}), true peak ${Number.isFinite(tp) ? tp.toFixed(1) : 'n/a'} dBTP, clipping count ${clippingCount} set outputGain to ${params.outputGain} dB`;
 
-  // Limiter engaged when the track clips, peaks over target, or needs attenuation.
-  const limiterEngaged = clippingCount > 0 || (Number.isFinite(tp) && tp > TARGET_TP) || params.outputGain < 0;
-  params.limiterEngaged = limiterEngaged;
-  reasons.limiterEngaged = `True peak ${Number.isFinite(tp) ? tp.toFixed(1) : 'n/a'} dBTP and clipping count ${clippingCount} ${limiterEngaged ? 'engaged' : 'left off'} the limiter`;
-
   // Shimmer raises deshimmer, via the gated helper.
   const deshimmer = deshimmerStrengthFromShimmer(r.shimmer);
   params.deshimmer = deshimmer;
@@ -161,28 +157,25 @@ export function mapAutoReport(report = {}, targetLUFS = TARGET_LUFS) {
   params.deesser = sibilance > SIBILANCE_THRESHOLD ? 1 : 0;
   reasons.deesser = `Sibilance ${sibilance.toFixed(3)} (5-8 kHz energy share) ${params.deesser ? 'enabled' : 'left off'} the de-esser`;
 
-  // Low width or correlation below 0.3 enables M/S bass anchoring.
-  const width = Number.isFinite(r.stereoWidth) ? r.stereoWidth : 1;
+  // Correlation below 0.3 enables M/S bass anchoring. Width is deliberately not a
+  // trigger: a mono file has width 0 and correlation 1, and needs no anchoring.
   const correlation = Number.isFinite(r.correlation) ? r.correlation : 1;
-  params.stereoWidth = width;
   params.correlation = correlation;
-  params.msBass = (width < 0.5 || correlation < 0.3) ? 1 : 0;
-  reasons.msBass = `Stereo width ${width.toFixed(2)} and correlation ${correlation.toFixed(2)} ${params.msBass ? 'enabled' : 'left off'} M/S bass anchoring`;
+  params.msBass = correlation < 0.3 ? 1 : 0;
+  reasons.msBass = `Stereo correlation ${correlation.toFixed(2)} ${params.msBass ? 'enabled' : 'left off'} M/S bass anchoring`;
 
   // HF cutoff at 16000 Hz enables the air shelf (chain reads params.hfCutoff).
   const hfCutoff = Number.isFinite(r.hfCutoff) ? r.hfCutoff : 0;
   params.hfCutoff = hfCutoff;
-  params.airShelf = (hfCutoff > 0 && hfCutoff <= 16000) ? 1 : 0;
-  if (params.airShelf) {
+  const airShelf = (hfCutoff > 0 && hfCutoff <= 16000);
+  if (airShelf) {
     params.bandwidthHeal = clampParam('bandwidthHeal', Math.max(BASE.bandwidthHeal, 2));
   }
-  reasons.airShelf = `HF cutoff ${hfCutoff ? Math.round(hfCutoff) + ' Hz' : 'n/a'} ${params.airShelf ? 'enabled' : 'left off'} the air shelf`;
+  reasons.airShelf = `HF cutoff ${hfCutoff ? Math.round(hfCutoff) + ' Hz' : 'n/a'} ${airShelf ? 'enabled' : 'left off'} the air shelf`;
 
   // Pass-throughs the shared chain (dsp.js buildMasterChain) reads.
   params.crestFactorDB = crest;
   params.integratedLUFS = Number.isFinite(lufs) ? lufs : null;
-  params.truePeakDBTP = Number.isFinite(tp) ? tp : null;
-  params.clippingCount = clippingCount;
 
   // Preset selection: clean or low-confidence -> standardEvasion; severe -> deepClean.
   // No later override: a heavy track keeps deepClean (worktree bug: veto forced standardEvasion).
@@ -196,5 +189,5 @@ export function mapAutoReport(report = {}, targetLUFS = TARGET_LUFS) {
     ? 'Track clean - standardEvasion preset'
     : `Preset ${presetKey} from carrier ${maxCarrier.toFixed(1)} dB, echo ${echo.toFixed(2)}, shimmer ${deshimmer}, clipping ${clippingCount}`;
 
-  return { params, reasons, presetKey, limiterEngaged };
+  return { params, reasons, presetKey };
 }
